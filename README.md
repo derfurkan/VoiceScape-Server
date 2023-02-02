@@ -1,5 +1,6 @@
 # VoiceScape-Server
 ### The Server software for [VoiceScape](https://github.com/derfurkan/VoiceScape "VoiceScape")
+Note that this is my first project using the socket functions in java.
 
 ## How to run
 #### To run the Server software you need to have [Java 17](https://www.oracle.com/java/technologies/javase/jdk17-archive-downloads.html "Java 17") installed on your system.<br/>
