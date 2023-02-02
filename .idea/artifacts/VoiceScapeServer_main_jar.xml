@@ -1,0 +1,9 @@
+<component name="ArtifactManager">
+  <artifact type="jar" build-on-make="true" name="VoiceScapeServer.main:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/VoiceScapeServer_main_jar</output-path>
+    <root id="archive" name="VoiceScapeServer.main.jar">
+      <element id="module-output" name="VoiceScapeServer.main" />
+      <element id="extracted-dir" path="$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.google.code.gson/gson/2.10.1/b3add478d4382b78ea20b1671390a858002feb6c/gson-2.10.1.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>
