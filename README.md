@@ -8,7 +8,7 @@ Get the latest release _(or build your own)_ and run it with the following comma
 `java -jar VoiceScape-Server.jar`
 
 After executing should see a message that says `-- Server started --`<br/>
-At this point you can connect to the with the following ip's<br/>
+At this point you can connect to the servers with the following ip's<br/>
 `VoiceServer` - `127.0.0.1:24444`<br/>
 `MessageServer` - `127.0.0.1:25555`
 
