@@ -1,6 +1,8 @@
 package de.furkan.voicescape.server;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -20,7 +22,7 @@ public class Core {
 
   public final int MIN_LOGIN_TIMEOUT_MS = 5_000,
       LOGIN_SPAM_BLACKLIST_BAN_MS = 60_000,
-      MIN_MESSAGE_TIMEOUT_MS = 800,
+      MIN_MESSAGE_TIMEOUT_MS = 500,
       MESSAGE_SPAM_BLACKLIST_BAN_MS = 20_000,
       MESSAGE_THREAD_WAIT_TIME_MS = 2_000,
       FLAG_REMOVE_TIMEOUT_MS = 5_000,
@@ -115,7 +117,7 @@ class Server {
                   try {
                     sleep(Core.getInstance().MESSAGE_THREAD_WAIT_TIME_MS);
                   } catch (InterruptedException e) {
-                    e.printStackTrace();
+
                   }
 
                   if (messageSocket.get() == null) {

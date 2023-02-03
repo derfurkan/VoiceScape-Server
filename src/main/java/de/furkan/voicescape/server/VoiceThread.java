@@ -68,11 +68,11 @@ public class VoiceThread implements Runnable {
 
   private void sendToAllClients(byte[] byteArray) {
     for (VoiceThread socket : Core.getInstance().voiceSockets) {
+      if(socket.mutedPlayers.contains(clientName) || mutedPlayers.contains(socket.clientName)) continue;
       try {
         OutputStream tempOut = socket.currentSocketConnection.getOutputStream();
         if (nearPlayers.contains(clientName)
             || (nearPlayers.contains(socket.clientName)
-                && !mutedPlayers.contains(socket.clientName)
                 && socket.nearPlayers.contains(clientName)
                 && Core.getInstance().registeredPlayerSockets.contains(socket.clientName))) {
           tempOut.write(byteArray, 0, byteArray.length);
