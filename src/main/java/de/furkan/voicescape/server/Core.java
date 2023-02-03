@@ -18,6 +18,8 @@ public class Core {
 
   private static final Core instance = new Core();
 
+
+
   public final boolean KILL_SOCKET_IF_INVALID_MESSAGE = true;
 
   public final int MIN_LOGIN_TIMEOUT_MS = 5_000,
@@ -39,11 +41,20 @@ public class Core {
   }
 
   public static void main(String[] args) {
-    new Server();
+   new Server();
   }
+
+    public void sendToAllMessageThreads(String message) {
+        for (VoiceThread voiceThread : voiceSockets) {
+            voiceThread.messageThread.out.println(message);
+        }
+    }
+
 }
 
 class Server {
+
+
 
   public Server() {
     ServerSocket voiceServer, messageServer;

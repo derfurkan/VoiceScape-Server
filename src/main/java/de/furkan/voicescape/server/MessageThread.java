@@ -15,7 +15,7 @@ public class MessageThread implements Runnable {
 
   private final Socket currentConnection;
   private final Thread currentThread;
-  private final PrintWriter out;
+  public final PrintWriter out;
   private final BufferedReader in;
   public VoiceThread currentVoiceThread;
   private boolean isRunning = true;
@@ -41,13 +41,13 @@ public class MessageThread implements Runnable {
 
       String inputLine;
       while ((inputLine = in.readLine()) != null && isRunning) {
-        /*    System.out.println(
+            System.out.println(
         "["
             + currentVoiceThread.clientName
             + "/"
             + currentConnection.getInetAddress().getHostAddress()
             + "] Received: "
-            + inputLine);*/
+            + inputLine);
         messageCount++;
 
         if (lastMessage != 0L
@@ -106,6 +106,7 @@ public class MessageThread implements Runnable {
                   + "/"
                   + currentConnection.getInetAddress().getHostAddress()
                   + "] Registered");
+          Core.getInstance().sendToAllMessageThreads("register:" + name);
           continue;
         }
 
@@ -158,6 +159,7 @@ public class MessageThread implements Runnable {
     if (!isRunning) return;
     try {
       isRunning = false;
+      Core.getInstance().sendToAllMessageThreads("unregister:" + currentVoiceThread.clientName);
       Core.getInstance().registeredPlayerSockets.remove(currentVoiceThread.clientName);
       Core.getInstance().voiceSockets.remove(currentVoiceThread);
       in.close();
