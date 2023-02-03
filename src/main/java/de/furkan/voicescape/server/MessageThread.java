@@ -64,14 +64,6 @@ public class MessageThread implements Runnable {
                   },
                   Core.getInstance().FLAG_REMOVE_TIMEOUT_MS);
           if (flags >= 3) {
-            System.out.println(
-                "["
-                    + currentVoiceThread.clientName
-                    + "/"
-                    + currentConnection.getInetAddress().getHostAddress()
-                    + "] Message spamming detected, disconnecting and blacklisting IP for "
-                    + Core.getInstance().MESSAGE_SPAM_BLACKLIST_BAN_MS / 1000
-                    + " seconds.");
             Core.getInstance()
                 .blackListedSpamIPs
                 .add(currentConnection.getInetAddress().getHostAddress());
