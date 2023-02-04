@@ -1,8 +1,6 @@
 package de.furkan.voicescape.server;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -17,8 +15,6 @@ import static java.lang.Thread.sleep;
 public class Core {
 
   private static final Core instance = new Core();
-
-
 
   public final boolean KILL_SOCKET_IF_INVALID_MESSAGE = true;
 
@@ -41,20 +37,17 @@ public class Core {
   }
 
   public static void main(String[] args) {
-   new Server();
+    new Server();
   }
 
-    public void sendToAllMessageThreads(String message) {
-        for (VoiceThread voiceThread : voiceSockets) {
-            voiceThread.messageThread.out.println(message);
-        }
+  public void sendToAllMessageThreads(String message) {
+    for (VoiceThread voiceThread : voiceSockets) {
+      voiceThread.messageThread.out.println(message);
     }
-
+  }
 }
 
 class Server {
-
-
 
   public Server() {
     ServerSocket voiceServer, messageServer;

@@ -13,9 +13,9 @@ import java.util.TimerTask;
 
 public class MessageThread implements Runnable {
 
+  public final PrintWriter out;
   private final Socket currentConnection;
   private final Thread currentThread;
-  public final PrintWriter out;
   private final BufferedReader in;
   public VoiceThread currentVoiceThread;
   private boolean isRunning = true;
@@ -23,7 +23,8 @@ public class MessageThread implements Runnable {
 
   public MessageThread(Socket currentConnection, VoiceThread currentVoiceThread) {
     this.currentVoiceThread = currentVoiceThread;
-    this.currentThread = new Thread(this, "MessageThread");
+    this.currentThread =
+        new Thread(this, "MessageThread-" + currentConnection.getInetAddress().getHostAddress());
     this.currentConnection = currentConnection;
     try {
       out = new PrintWriter(currentConnection.getOutputStream(), true);
@@ -41,13 +42,6 @@ public class MessageThread implements Runnable {
 
       String inputLine;
       while ((inputLine = in.readLine()) != null && isRunning) {
-            System.out.println(
-        "["
-            + currentVoiceThread.clientName
-            + "/"
-            + currentConnection.getInetAddress().getHostAddress()
-            + "] Received: "
-            + inputLine);
         messageCount++;
 
         if (lastMessage != 0L
@@ -64,6 +58,14 @@ public class MessageThread implements Runnable {
                   },
                   Core.getInstance().FLAG_REMOVE_TIMEOUT_MS);
           if (flags >= 3) {
+            System.out.println(
+                "["
+                    + currentVoiceThread.clientName
+                    + "/"
+                    + currentConnection.getInetAddress().getHostAddress()
+                    + "] Message spamming detected, disconnecting and blacklisting IP for "
+                    + Core.getInstance().MESSAGE_SPAM_BLACKLIST_BAN_MS / 1000
+                    + " seconds.");
             Core.getInstance()
                 .blackListedSpamIPs
                 .add(currentConnection.getInetAddress().getHostAddress());

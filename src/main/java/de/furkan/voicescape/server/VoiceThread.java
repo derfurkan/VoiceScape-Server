@@ -39,7 +39,7 @@ public class VoiceThread implements Runnable {
     byte[] inBytes = new byte[1096];
     while (bytesRead != -1 && isRunning) {
       try {
-        bytesRead = dataIn.read(inBytes, 0, 1096);
+        bytesRead = dataIn.read(inBytes, 0, inBytes.length);
         if (bytesRead >= 0) {
           sendToAllClients(inBytes);
         }
@@ -68,7 +68,8 @@ public class VoiceThread implements Runnable {
 
   private void sendToAllClients(byte[] byteArray) {
     for (VoiceThread socket : Core.getInstance().voiceSockets) {
-      if(socket.mutedPlayers.contains(clientName) || mutedPlayers.contains(socket.clientName)) continue;
+      if (socket.mutedPlayers.contains(clientName) || mutedPlayers.contains(socket.clientName))
+        continue;
       try {
         OutputStream tempOut = socket.currentSocketConnection.getOutputStream();
         if (nearPlayers.contains(clientName)
