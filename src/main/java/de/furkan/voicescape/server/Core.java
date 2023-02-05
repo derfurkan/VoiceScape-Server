@@ -51,6 +51,7 @@ public class Core {
   }
 
   public void sendToAllMessageThreads(String message) {
+    ArrayList<VoiceThread> voiceSockets = new ArrayList<>(this.voiceSockets);
     for (VoiceThread voiceThread : voiceSockets) {
       voiceThread.messageThread.out.println(message);
     }
@@ -156,16 +157,19 @@ class Server {
         }
         thread.interrupt();
 
-        ThreadPoolExecutor threadPoolExecutor = getThreadPool();
 
-        MessageThread messageThread = new MessageThread(messageSocket.get(), threadPoolExecutor);
-        VoiceThread voiceThread = new VoiceThread(voiceSocket);
 
-        messageThread.currentVoiceThread = voiceThread;
-        voiceThread.messageThread = messageThread;
+          ThreadPoolExecutor threadPoolExecutor = getThreadPool();
 
-        threadPoolExecutor.execute(messageThread);
-        threadPoolExecutor.execute(voiceThread);
+          MessageThread messageThread = new MessageThread(messageSocket.get(), threadPoolExecutor);
+          VoiceThread voiceThread = new VoiceThread(voiceSocket);
+
+          messageThread.currentVoiceThread = voiceThread;
+          voiceThread.messageThread = messageThread;
+
+          threadPoolExecutor.execute(messageThread);
+          threadPoolExecutor.execute(voiceThread);
+
 
         new Timer()
             .schedule(
@@ -197,7 +201,7 @@ class Server {
   private ThreadPoolExecutor getThreadPool() {
     ThreadPoolExecutor threadPoolExecutor = null;
     for (ThreadPoolExecutor threadPool : Core.getInstance().threadPools) {
-      if (threadPool.getActiveCount() < Core.getInstance().MAX_THREADS_PER_POOL) {
+      if (threadPool.getActiveCount()+2 < Core.getInstance().MAX_THREADS_PER_POOL) {
         threadPoolExecutor = threadPool;
         break;
       }

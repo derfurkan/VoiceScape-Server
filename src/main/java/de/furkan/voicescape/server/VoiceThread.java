@@ -66,7 +66,8 @@ public class VoiceThread implements Runnable {
   }
 
   private void sendToAllClients(byte[] byteArray) {
-    for (VoiceThread socket : Core.getInstance().voiceSockets) {
+    ArrayList<VoiceThread> voiceThreads = (ArrayList<VoiceThread>) Core.getInstance().voiceSockets.clone();
+    for (VoiceThread socket : voiceThreads) {
       if (socket.mutedPlayers.contains(clientName) || mutedPlayers.contains(socket.clientName))
         continue;
       try {
