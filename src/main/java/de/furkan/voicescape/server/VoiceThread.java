@@ -10,7 +10,6 @@ import java.util.ArrayList;
 public class VoiceThread implements Runnable {
 
   public final Socket currentSocketConnection;
-  private final Thread currentThread;
   private final DataInputStream dataIn;
   private final DataOutputStream dataOut;
   public String clientName;
@@ -20,23 +19,23 @@ public class VoiceThread implements Runnable {
   boolean isRunning = true;
 
   public VoiceThread(Socket conn) {
-    this.currentThread = new Thread(this, "VoiceThread-" + conn.getInetAddress().getHostAddress());
-
     currentSocketConnection = conn;
+
     try {
+      currentSocketConnection.setSendBufferSize(64000);
+      currentSocketConnection.setReceiveBufferSize(64000);
       dataIn = new DataInputStream(currentSocketConnection.getInputStream());
       dataOut = new DataOutputStream(currentSocketConnection.getOutputStream());
     } catch (IOException e) {
       stop();
       throw new RuntimeException(e);
     }
-    this.currentThread.start();
   }
 
   public void run() {
     Core.getInstance().voiceSockets.add(this);
     int bytesRead = 0;
-    byte[] inBytes = new byte[1096];
+    byte[] inBytes = new byte[8192];
     while (bytesRead != -1 && isRunning) {
       try {
         bytesRead = dataIn.read(inBytes, 0, inBytes.length);
@@ -60,7 +59,7 @@ public class VoiceThread implements Runnable {
       dataIn.close();
       dataOut.close();
       currentSocketConnection.close();
-      currentThread.interrupt();
+      System.gc();
     } catch (Exception e) {
       e.printStackTrace();
     }
@@ -79,7 +78,6 @@ public class VoiceThread implements Runnable {
           tempOut.write(byteArray, 0, byteArray.length);
         }
       } catch (IOException e) {
-        e.printStackTrace();
         socket.stop();
       }
     }
