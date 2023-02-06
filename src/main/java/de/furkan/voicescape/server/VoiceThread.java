@@ -22,8 +22,8 @@ public class VoiceThread implements Runnable {
     currentSocketConnection = conn;
 
     try {
-      currentSocketConnection.setSendBufferSize(64000);
-      currentSocketConnection.setReceiveBufferSize(64000);
+      currentSocketConnection.setSendBufferSize(1024);
+      currentSocketConnection.setReceiveBufferSize(1024);
       dataIn = new DataInputStream(currentSocketConnection.getInputStream());
       dataOut = new DataOutputStream(currentSocketConnection.getOutputStream());
     } catch (IOException e) {
@@ -35,7 +35,7 @@ public class VoiceThread implements Runnable {
   public void run() {
     Core.getInstance().voiceSockets.add(this);
     int bytesRead = 0;
-    byte[] inBytes = new byte[8192];
+    byte[] inBytes = new byte[1024];
     while (bytesRead != -1 && isRunning) {
       try {
         bytesRead = dataIn.read(inBytes, 0, inBytes.length);
@@ -43,7 +43,6 @@ public class VoiceThread implements Runnable {
           sendToAllClients(inBytes);
         }
       } catch (Exception e) {
-        e.printStackTrace();
         stop();
       }
     }
@@ -66,7 +65,8 @@ public class VoiceThread implements Runnable {
   }
 
   private void sendToAllClients(byte[] byteArray) {
-    ArrayList<VoiceThread> voiceThreads = (ArrayList<VoiceThread>) Core.getInstance().voiceSockets.clone();
+    ArrayList<VoiceThread> voiceThreads =
+        (ArrayList<VoiceThread>) Core.getInstance().voiceSockets.clone();
     for (VoiceThread socket : voiceThreads) {
       if (socket.mutedPlayers.contains(clientName) || mutedPlayers.contains(socket.clientName))
         continue;

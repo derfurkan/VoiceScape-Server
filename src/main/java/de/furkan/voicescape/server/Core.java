@@ -21,7 +21,7 @@ public class Core {
 
   public final boolean KILL_SOCKET_IF_INVALID_MESSAGE = true;
 
-  public final int MIN_LOGIN_TIMEOUT_MS = 50,
+  public final int MIN_LOGIN_TIMEOUT_MS = 5_000,
       LOGIN_SPAM_BLACKLIST_BAN_MS = 60_000,
       MIN_MESSAGE_TIMEOUT_MS = 500,
       MESSAGE_SPAM_BLACKLIST_BAN_MS = 20_000,
@@ -30,7 +30,7 @@ public class Core {
       REGISTRATION_TIMEOUT_MS = 5_000,
       MAX_THREADS_PER_POOL = 10,
       UPDATE_CLIENTS_INTERVAL_MS = 10_000;
-  public final int VOICE_SERVER_PORT = 24444, MESSAGE_SERVER_PORT = 25555;
+  public final int VOICE_SERVER_PORT = 24444, MESSAGE_SERVER_PORT = 23333;
 
   public ArrayList<VoiceThread> voiceSockets = new ArrayList<>();
   public ArrayList<String> registeredPlayerSockets = new ArrayList<>();
@@ -65,6 +65,10 @@ class Server {
     try {
       voiceServer = new ServerSocket(Core.getInstance().VOICE_SERVER_PORT);
       messageServer = new ServerSocket(Core.getInstance().MESSAGE_SERVER_PORT);
+
+      voiceServer.setReceiveBufferSize(1024);
+      messageServer.setReceiveBufferSize(1024);
+
       System.out.println("-- Server started --");
     } catch (Exception e) {
       throw new RuntimeException(e);
@@ -75,6 +79,9 @@ class Server {
       try {
         AtomicReference<Socket> messageSocket = new AtomicReference<>(null);
         Socket voiceSocket = voiceServer.accept();
+        voiceSocket.setTcpNoDelay(true);
+        voiceSocket.setReceiveBufferSize(1024);
+        voiceSocket.setSendBufferSize(1024);
 
         if (Core.getInstance()
             .blackListedSpamIPs
@@ -124,6 +131,9 @@ class Server {
                           () -> {
                             try {
                               messageSocket.set(messageServer.accept());
+                              messageSocket.get().setTcpNoDelay(true);
+                              messageSocket.get().setReceiveBufferSize(1024);
+                              messageSocket.get().setSendBufferSize(1024);
                               completableFuture.complete(true);
                             } catch (IOException e) {
                               e.printStackTrace();
@@ -157,19 +167,16 @@ class Server {
         }
         thread.interrupt();
 
+        ThreadPoolExecutor threadPoolExecutor = getThreadPool();
 
+        MessageThread messageThread = new MessageThread(messageSocket.get(), threadPoolExecutor);
+        VoiceThread voiceThread = new VoiceThread(voiceSocket);
 
-          ThreadPoolExecutor threadPoolExecutor = getThreadPool();
+        messageThread.currentVoiceThread = voiceThread;
+        voiceThread.messageThread = messageThread;
 
-          MessageThread messageThread = new MessageThread(messageSocket.get(), threadPoolExecutor);
-          VoiceThread voiceThread = new VoiceThread(voiceSocket);
-
-          messageThread.currentVoiceThread = voiceThread;
-          voiceThread.messageThread = messageThread;
-
-          threadPoolExecutor.execute(messageThread);
-          threadPoolExecutor.execute(voiceThread);
-
+        threadPoolExecutor.execute(messageThread);
+        threadPoolExecutor.execute(voiceThread);
 
         new Timer()
             .schedule(
@@ -201,7 +208,7 @@ class Server {
   private ThreadPoolExecutor getThreadPool() {
     ThreadPoolExecutor threadPoolExecutor = null;
     for (ThreadPoolExecutor threadPool : Core.getInstance().threadPools) {
-      if (threadPool.getActiveCount()+2 < Core.getInstance().MAX_THREADS_PER_POOL) {
+      if (threadPool.getActiveCount() + 2 < Core.getInstance().MAX_THREADS_PER_POOL) {
         threadPoolExecutor = threadPool;
         break;
       }

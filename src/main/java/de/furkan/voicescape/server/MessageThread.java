@@ -17,18 +17,18 @@ public class MessageThread implements Runnable {
   public final PrintWriter out;
   private final Socket currentConnection;
   private final BufferedReader in;
+  private final ThreadPoolExecutor threadPoolExecutor;
   public VoiceThread currentVoiceThread;
   private boolean isRunning = true;
   private long lastMessage, messageCount, flags;
-  private final ThreadPoolExecutor threadPoolExecutor;
 
   public MessageThread(Socket currentConnection, ThreadPoolExecutor threadPoolExecutor) {
     this.threadPoolExecutor = threadPoolExecutor;
     this.currentConnection = currentConnection;
 
     try {
-      currentConnection.setSendBufferSize(64000);
-      currentConnection.setReceiveBufferSize(64000);
+      currentConnection.setSendBufferSize(1024);
+      currentConnection.setReceiveBufferSize(1024);
       out = new PrintWriter(currentConnection.getOutputStream(), true);
       in = new BufferedReader(new InputStreamReader(currentConnection.getInputStream()));
     } catch (IOException e) {
@@ -155,7 +155,6 @@ public class MessageThread implements Runnable {
         lastMessage = System.currentTimeMillis();
       }
     } catch (Exception e) {
-      e.printStackTrace();
       stop();
     }
   }
