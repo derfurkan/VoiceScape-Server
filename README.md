@@ -10,7 +10,7 @@ Get the latest release _(or build your own)_ and run it with the following comma
 After executing should see a message that says `-- Server started --`<br/>
 At this point you can connect to the servers with the following ip's<br/>
 `VoiceServer` - `127.0.0.1:24444`<br/>
-`MessageServer` - `127.0.0.1:25555`
+`MessageServer` - `127.0.0.1:23333`
 
 [VoiceScape](https://github.com/derfurkan/VoiceScape "VoiceScape") needs to connect to BOTH of them so make sure that your ports are open if you want that other players also can connect to your server.
 
@@ -28,7 +28,7 @@ Here i will describe them in detail<br/><br/>
 * `MAX_THREADS_PER_POOL` _(10 by default)_ - The maximum of threads that can be active in one threadpool. Threadpools are used to increase performance. This value must be divisible by 2. If the number is not divisible by 2 the client might not connect to the message server.<br/><br/>
 * `UPDATE_CLIENTS_INTERVAL_MS` _(10.000 by default)_ - The interval in milliseconds the server will send an update message to all clients with registered and unregistered players. This is useful for the client to determine which player in its surrounding is also connected to the server. This heavily reduces the network load on the server and client.<br/><br/><br/>
 * `VOICE_SERVER_PORT` _(24444 by default)_ - The port on which the voice server should be opened on.<br/><br/>
-* `MESSAGE_SERVER_PORT` _(25555 by default)_ - The port on which the message server should be opened on.<br/><br/>
+* `MESSAGE_SERVER_PORT` _(23333 by default)_ - The port on which the message server should be opened on.<br/><br/>
 
 
 
