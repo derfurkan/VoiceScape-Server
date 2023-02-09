@@ -24,11 +24,9 @@ public class UpdateThread implements Runnable {
               public void run() {
 
                 Gson gson = new Gson();
-                if (Core.getInstance().registeredPlayerSockets.equals(lastRegistered)) {
-                  return;
-                }
+
                 Core.getInstance()
-                    .sendToAllMessageThreads(
+                    .sendToAllClientThreads(
                         "register " + gson.toJson(Core.getInstance().registeredPlayerSockets));
                 try {
                   Thread.sleep(1000);
@@ -36,9 +34,8 @@ public class UpdateThread implements Runnable {
                   throw new RuntimeException(e);
                 }
                 Core.getInstance()
-                    .sendToAllMessageThreads(
+                    .sendToAllClientThreads(
                         "unregister " + gson.toJson(Core.getInstance().unregisteredPlayerSockets));
-
                 lastRegistered = new ArrayList<>(Core.getInstance().registeredPlayerSockets);
               }
             },

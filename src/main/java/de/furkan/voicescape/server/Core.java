@@ -1,19 +1,14 @@
 package de.furkan.voicescape.server;
 
-import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-
-import static java.lang.Thread.sleep;
 
 public class Core {
 
@@ -25,21 +20,21 @@ public class Core {
       LOGIN_SPAM_BLACKLIST_BAN_MS = 60_000,
       MIN_MESSAGE_TIMEOUT_MS = 500,
       MESSAGE_SPAM_BLACKLIST_BAN_MS = 20_000,
-      MESSAGE_THREAD_WAIT_TIME_MS = 2_000,
       FLAG_REMOVE_TIMEOUT_MS = 5_000,
       REGISTRATION_TIMEOUT_MS = 5_000,
-      MAX_THREADS_PER_POOL = 10,
-      UPDATE_CLIENTS_INTERVAL_MS = 10_000;
+      MAX_THREADS_PER_POOL = 20,
+      UPDATE_CLIENTS_INTERVAL_MS = 10_000,
+      MAX_CLIENTS = 50_000,
+      MAX_CLIENTS_PER_IP = 5;
   public final int VOICE_SERVER_PORT = 24444, MESSAGE_SERVER_PORT = 23333;
 
-  public ArrayList<VoiceThread> voiceSockets = new ArrayList<>();
   public ArrayList<String> registeredPlayerSockets = new ArrayList<>();
-
   public ArrayList<String> unregisteredPlayerSockets = new ArrayList<>();
   public ArrayList<String> blackListedSpamIPs = new ArrayList<>();
   public HashMap<String, Long> lastLoginIPs = new HashMap<>();
-
   public ArrayList<ThreadPoolExecutor> threadPools = new ArrayList<>();
+
+  public ArrayList<ClientThread> clientThreads = new ArrayList<>();
 
   public static Core getInstance() {
     return instance;
@@ -50,181 +45,139 @@ public class Core {
     new Server();
   }
 
-  public void sendToAllMessageThreads(String message) {
-    ArrayList<VoiceThread> voiceSockets = new ArrayList<>(this.voiceSockets);
-    for (VoiceThread voiceThread : voiceSockets) {
-      voiceThread.messageThread.out.println(message);
+  public void sendToAllClientThreads(String message) {
+    ArrayList<ClientThread> clientThreads = new ArrayList<>(this.clientThreads);
+    for (ClientThread clientThread : clientThreads) {
+      clientThread.out.println(message);
     }
   }
-}
 
-class Server {
+  static class Server {
 
-  public Server() {
-    ServerSocket voiceServer, messageServer;
-    try {
-      voiceServer = new ServerSocket(Core.getInstance().VOICE_SERVER_PORT);
-      messageServer = new ServerSocket(Core.getInstance().MESSAGE_SERVER_PORT);
-
-      voiceServer.setReceiveBufferSize(1024);
-      messageServer.setReceiveBufferSize(1024);
-
-      System.out.println("-- Server started --");
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-
-    while (true) {
-
+    public Server() {
+      VoiceServerThread voiceServerThread = new VoiceServerThread();
+      ServerSocket messageServer;
       try {
-        AtomicReference<Socket> messageSocket = new AtomicReference<>(null);
-        Socket voiceSocket = voiceServer.accept();
-        voiceSocket.setTcpNoDelay(true);
-        voiceSocket.setReceiveBufferSize(1024);
-        voiceSocket.setSendBufferSize(1024);
+        messageServer = new ServerSocket(Core.getInstance().MESSAGE_SERVER_PORT);
+        System.out.println("-- Server started --");
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
 
-        if (Core.getInstance()
-            .blackListedSpamIPs
-            .contains(voiceSocket.getInetAddress().getHostAddress())) {
-          voiceSocket.close();
-          continue;
-        }
+      while (true) {
 
-        if (Core.getInstance().lastLoginIPs.get(voiceSocket.getInetAddress().getHostAddress())
-                != null
-            && System.currentTimeMillis()
-                    - Core.getInstance()
-                        .lastLoginIPs
-                        .get(voiceSocket.getInetAddress().getHostAddress())
-                < Core.getInstance().MIN_LOGIN_TIMEOUT_MS) {
-          System.out.println(
-              "["
-                  + voiceSocket.getInetAddress().getHostAddress()
-                  + "] Login spam detected, blacklisting");
-          Core.getInstance().blackListedSpamIPs.add(voiceSocket.getInetAddress().getHostAddress());
+        try {
+          Socket messageSocket = messageServer.accept();
+          if (Core.getInstance().registeredPlayerSockets.size() >= Core.getInstance().MAX_CLIENTS) {
+            messageSocket.close();
+            continue;
+          }
+
+          int clientsPerIP = 0;
+          for (ClientThread clientThread : Core.getInstance().clientThreads) {
+            if (clientThread
+                .currentConnection
+                .getInetAddress()
+                .getHostAddress()
+                .equals(messageSocket.getInetAddress().getHostAddress())) {
+              clientsPerIP++;
+            }
+          }
+          if (clientsPerIP >= Core.getInstance().MAX_CLIENTS_PER_IP) {
+            messageSocket.close();
+            continue;
+          }
+          messageSocket.setTcpNoDelay(true);
+
+          if (Core.getInstance()
+              .blackListedSpamIPs
+              .contains(messageSocket.getInetAddress().getHostAddress())) {
+            messageSocket.close();
+            continue;
+          }
+
+          if (Core.getInstance().lastLoginIPs.get(messageSocket.getInetAddress().getHostAddress())
+                  != null
+              && System.currentTimeMillis()
+                      - Core.getInstance()
+                          .lastLoginIPs
+                          .get(messageSocket.getInetAddress().getHostAddress())
+                  < Core.getInstance().MIN_LOGIN_TIMEOUT_MS) {
+            System.out.println(
+                "["
+                    + messageSocket.getInetAddress().getHostAddress()
+                    + "] Login spam detected, blacklisting");
+            Core.getInstance()
+                .blackListedSpamIPs
+                .add(messageSocket.getInetAddress().getHostAddress());
+
+            new Timer()
+                .schedule(
+                    new TimerTask() {
+                      @Override
+                      public void run() {
+                        Core.getInstance()
+                            .blackListedSpamIPs
+                            .remove(messageSocket.getInetAddress().getHostAddress());
+                      }
+                    },
+                    Core.getInstance().LOGIN_SPAM_BLACKLIST_BAN_MS);
+            messageSocket.close();
+            continue;
+          }
+
+          Core.getInstance()
+              .lastLoginIPs
+              .put(messageSocket.getInetAddress().getHostAddress(), System.currentTimeMillis());
+
+          ThreadPoolExecutor threadPoolExecutor = getThreadPool();
+
+          ClientThread clientThread =
+              new ClientThread(messageSocket, threadPoolExecutor, voiceServerThread.voiceServer);
+          threadPoolExecutor.execute(clientThread);
 
           new Timer()
               .schedule(
                   new TimerTask() {
                     @Override
                     public void run() {
-                      Core.getInstance()
-                          .blackListedSpamIPs
-                          .remove(voiceSocket.getInetAddress().getHostAddress());
+                      if (clientThread.clientName == null || clientThread.clientName.isEmpty()) {
+                        System.out.println(
+                            "["
+                                + clientThread.currentConnection.getInetAddress().getHostAddress()
+                                + "] Didn't send registration, disconnecting");
+                        clientThread.stop();
+                      }
                     }
                   },
-                  Core.getInstance().LOGIN_SPAM_BLACKLIST_BAN_MS);
-          voiceSocket.close();
-          continue;
+                  Core.getInstance().REGISTRATION_TIMEOUT_MS);
+        } catch (Exception e) {
+          e.printStackTrace();
         }
-
-        Core.getInstance()
-            .lastLoginIPs
-            .put(voiceSocket.getInetAddress().getHostAddress(), System.currentTimeMillis());
-
-        CompletableFuture<Boolean> completableFuture = new CompletableFuture<>();
-        Thread thread =
-            new Thread(
-                () -> {
-                  Thread messageConnectionThread =
-                      new Thread(
-                          () -> {
-                            try {
-                              messageSocket.set(messageServer.accept());
-                              messageSocket.get().setTcpNoDelay(true);
-                              messageSocket.get().setReceiveBufferSize(1024);
-                              messageSocket.get().setSendBufferSize(1024);
-                              completableFuture.complete(true);
-                            } catch (IOException e) {
-                              e.printStackTrace();
-                            }
-                          });
-                  messageConnectionThread.start();
-
-                  try {
-                    sleep(Core.getInstance().MESSAGE_THREAD_WAIT_TIME_MS);
-                  } catch (InterruptedException e) {
-
-                  }
-
-                  if (messageSocket.get() == null) {
-                    messageConnectionThread.interrupt();
-                    System.out.println(
-                        "["
-                            + voiceSocket.getInetAddress().getHostAddress()
-                            + "] Didn't connect to message server, disconnecting");
-                    try {
-                      completableFuture.complete(false);
-                      voiceSocket.close();
-                    } catch (IOException e) {
-                      e.printStackTrace();
-                    }
-                  }
-                });
-        thread.start();
-        if (!completableFuture.get()) {
-          continue;
-        }
-        thread.interrupt();
-
-        ThreadPoolExecutor threadPoolExecutor = getThreadPool();
-
-        MessageThread messageThread = new MessageThread(messageSocket.get(), threadPoolExecutor);
-        VoiceThread voiceThread = new VoiceThread(voiceSocket);
-
-        messageThread.currentVoiceThread = voiceThread;
-        voiceThread.messageThread = messageThread;
-
-        threadPoolExecutor.execute(messageThread);
-        threadPoolExecutor.execute(voiceThread);
-
-        new Timer()
-            .schedule(
-                new TimerTask() {
-                  @Override
-                  public void run() {
-                    if (messageThread.currentVoiceThread.clientName == null
-                        || messageThread.currentVoiceThread.clientName.isEmpty()) {
-                      System.out.println(
-                          "["
-                              + messageThread
-                                  .currentVoiceThread
-                                  .currentSocketConnection
-                                  .getInetAddress()
-                                  .getHostAddress()
-                              + "] Didn't send registration, disconnecting");
-                      messageThread.currentVoiceThread.stop();
-                      messageThread.stop();
-                    }
-                  }
-                },
-                Core.getInstance().REGISTRATION_TIMEOUT_MS);
-      } catch (Exception e) {
-        e.printStackTrace();
       }
     }
-  }
 
-  private ThreadPoolExecutor getThreadPool() {
-    ThreadPoolExecutor threadPoolExecutor = null;
-    for (ThreadPoolExecutor threadPool : Core.getInstance().threadPools) {
-      if (threadPool.getActiveCount() + 2 < Core.getInstance().MAX_THREADS_PER_POOL) {
-        threadPoolExecutor = threadPool;
-        break;
+    private ThreadPoolExecutor getThreadPool() {
+      ThreadPoolExecutor threadPoolExecutor = null;
+      for (ThreadPoolExecutor threadPool : Core.getInstance().threadPools) {
+        if (threadPool.getActiveCount() + 2 < Core.getInstance().MAX_THREADS_PER_POOL) {
+          threadPoolExecutor = threadPool;
+          break;
+        }
       }
-    }
-    if (threadPoolExecutor == null) {
-      threadPoolExecutor =
-          new ThreadPoolExecutor(
-              Core.getInstance().MAX_THREADS_PER_POOL,
-              Core.getInstance().MAX_THREADS_PER_POOL,
-              0L,
-              TimeUnit.MILLISECONDS,
-              new SynchronousQueue<>());
-      Core.getInstance().threadPools.add(threadPoolExecutor);
-      System.out.println("-- Created new thread pool --");
-    }
+      if (threadPoolExecutor == null) {
+        threadPoolExecutor =
+            new ThreadPoolExecutor(
+                Core.getInstance().MAX_THREADS_PER_POOL,
+                Core.getInstance().MAX_THREADS_PER_POOL,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new SynchronousQueue<>());
+        Core.getInstance().threadPools.add(threadPoolExecutor);
+        System.out.println("-- Created new thread pool --");
+      }
 
-    return threadPoolExecutor;
+      return threadPoolExecutor;
+    }
   }
 }

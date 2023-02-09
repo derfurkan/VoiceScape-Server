@@ -6,33 +6,39 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ThreadPoolExecutor;
 
-public class MessageThread implements Runnable {
+public class ClientThread implements Runnable {
 
   public final PrintWriter out;
-  private final Socket currentConnection;
+  public final Socket currentConnection;
   private final BufferedReader in;
   private final ThreadPoolExecutor threadPoolExecutor;
-  public VoiceThread currentVoiceThread;
+  private final DatagramSocket voiceServer;
+  public int voicePort;
+  public String clientName;
+  public ArrayList<String> nearPlayers = new ArrayList<>();
+  public ArrayList<String> mutedPlayers = new ArrayList<>();
   private boolean isRunning = true;
   private long lastMessage, messageCount, flags;
+  private long localSequenceNumber = 0;
 
-  public MessageThread(Socket currentConnection, ThreadPoolExecutor threadPoolExecutor) {
+  public ClientThread(
+      Socket currentConnection, ThreadPoolExecutor threadPoolExecutor, DatagramSocket voiceServer) {
+    this.voiceServer = voiceServer;
     this.threadPoolExecutor = threadPoolExecutor;
     this.currentConnection = currentConnection;
 
     try {
-      currentConnection.setSendBufferSize(1024);
-      currentConnection.setReceiveBufferSize(1024);
       out = new PrintWriter(currentConnection.getOutputStream(), true);
       in = new BufferedReader(new InputStreamReader(currentConnection.getInputStream()));
     } catch (IOException e) {
-      currentVoiceThread.stop();
       throw new RuntimeException(e);
     }
   }
@@ -44,7 +50,6 @@ public class MessageThread implements Runnable {
       String inputLine;
       while ((inputLine = in.readLine()) != null && isRunning) {
         messageCount++;
-
         if (lastMessage != 0L
             && System.currentTimeMillis() - lastMessage < Core.getInstance().MIN_MESSAGE_TIMEOUT_MS
             && messageCount >= 5) {
@@ -61,7 +66,7 @@ public class MessageThread implements Runnable {
           if (flags >= 3) {
             System.out.println(
                 "["
-                    + currentVoiceThread.clientName
+                    + clientName
                     + "/"
                     + currentConnection.getInetAddress().getHostAddress()
                     + "] Message spamming detected, disconnecting and blacklisting IP for "
@@ -80,59 +85,62 @@ public class MessageThread implements Runnable {
                             .remove(currentConnection.getInetAddress().getHostAddress());
                         System.out.println(
                             "["
-                                + currentVoiceThread.clientName
+                                + clientName
                                 + "/"
                                 + currentConnection.getInetAddress().getHostAddress()
                                 + "] Removed from blacklist.");
                       }
                     },
                     Core.getInstance().MESSAGE_SPAM_BLACKLIST_BAN_MS);
-            currentVoiceThread.stop();
+            stop();
             return;
           }
         }
+        lastMessage = System.currentTimeMillis();
         if (inputLine.startsWith("register:")) {
-          String name = inputLine.replace("register:", "");
+          String name = inputLine.split(":")[1].split("#")[0];
+          voicePort = Integer.parseInt(inputLine.split("#")[1]);
           Core.getInstance().registeredPlayerSockets.add(name);
           Core.getInstance().unregisteredPlayerSockets.remove(name);
-          currentVoiceThread.clientName = name;
+          clientName = name;
           System.out.println(
               "["
-                  + currentVoiceThread.clientName
+                  + clientName
                   + "/"
                   + currentConnection.getInetAddress().getHostAddress()
                   + "] Registered at pool "
                   + Core.getInstance().threadPools.indexOf(threadPoolExecutor)
                   + " with "
                   + threadPoolExecutor.getActiveCount()
-                  + " active threads.");
-
+                  + " active threads. With voice port "
+                  + voicePort);
+          Core.getInstance().clientThreads.add(this);
           continue;
         }
 
-        if (Core.getInstance().registeredPlayerSockets.contains(currentVoiceThread.clientName)) {
+        if (Core.getInstance().registeredPlayerSockets.contains(clientName)) {
           if (inputLine.equalsIgnoreCase("disconnect")) {
             System.out.println(
                 "["
-                    + currentVoiceThread.clientName
+                    + clientName
                     + "/"
                     + currentConnection.getInetAddress().getHostAddress()
                     + "] Disconnected");
-            currentVoiceThread.stop();
+            stop();
           } else if (inputLine.startsWith("mute") && inputLine.contains(" ")) {
-            currentVoiceThread.mutedPlayers.add(inputLine.replace("mute ", ""));
+            mutedPlayers.add(inputLine.replace("mute ", ""));
             System.out.println(
                 "["
-                    + currentVoiceThread.clientName
+                    + clientName
                     + "/"
                     + currentConnection.getInetAddress().getHostAddress()
                     + "] Muted "
                     + inputLine.replace("mute ", ""));
           } else if (inputLine.startsWith("unmute") && inputLine.contains(" ")) {
-            currentVoiceThread.mutedPlayers.remove(inputLine.replace("unmute ", ""));
+            mutedPlayers.remove(inputLine.replace("unmute ", ""));
             System.out.println(
                 "["
-                    + currentVoiceThread.clientName
+                    + clientName
                     + "/"
                     + currentConnection.getInetAddress().getHostAddress()
                     + "] Unmuted "
@@ -143,19 +151,37 @@ public class MessageThread implements Runnable {
               Gson gson = new Gson();
               nearPlayers = gson.fromJson(inputLine, nearPlayers.getClass());
 
-              currentVoiceThread.nearPlayers.clear();
-              currentVoiceThread.nearPlayers.addAll(nearPlayers);
+              this.nearPlayers.clear();
+              this.nearPlayers.addAll(nearPlayers);
             } catch (Exception e) {
+              e.printStackTrace();
               if (Core.getInstance().KILL_SOCKET_IF_INVALID_MESSAGE) {
-                currentVoiceThread.stop();
+                stop();
               }
             }
           }
         }
-        lastMessage = System.currentTimeMillis();
       }
     } catch (Exception e) {
       stop();
+    }
+  }
+
+  public void sendBytesToVoiceClient(byte[] bytes, int length) {
+    try {
+      localSequenceNumber++;
+      VoicePacket rtp_packet =
+          new VoicePacket(11, Math.toIntExact(localSequenceNumber), 0, bytes, length);
+      int packet_length = rtp_packet.getlength();
+      byte[] packet_bits = new byte[packet_length];
+      rtp_packet.getpacket(packet_bits);
+      DatagramPacket packet =
+          new DatagramPacket(
+              packet_bits, packet_length, currentConnection.getInetAddress(), voicePort);
+      voiceServer.send(packet);
+
+    } catch (Exception e) {
+      e.printStackTrace();
     }
   }
 
@@ -163,9 +189,10 @@ public class MessageThread implements Runnable {
     if (!isRunning) return;
     try {
       isRunning = false;
-      Core.getInstance().unregisteredPlayerSockets.add(currentVoiceThread.clientName);
-      Core.getInstance().registeredPlayerSockets.remove(currentVoiceThread.clientName);
-      Core.getInstance().voiceSockets.remove(currentVoiceThread);
+      if (clientName != null && !clientName.isEmpty()) {
+        Core.getInstance().unregisteredPlayerSockets.add(clientName);
+        Core.getInstance().registeredPlayerSockets.remove(clientName);
+      }
       in.close();
       out.close();
       currentConnection.close();
