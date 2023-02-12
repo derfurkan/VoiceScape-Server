@@ -24,7 +24,7 @@ public class ClientThread implements Runnable {
   public int voicePort;
   public String clientName;
   public ArrayList<String> nearPlayers = new ArrayList<>();
-  public ArrayList<String> mutedPlayers = new ArrayList<>();
+  public long lastVoicePacket = 0L;
   private boolean isRunning = true;
   private long lastMessage, messageCount, flags;
   private long localSequenceNumber = 0;
@@ -99,6 +99,10 @@ public class ClientThread implements Runnable {
         lastMessage = System.currentTimeMillis();
         if (inputLine.startsWith("register:")) {
           String name = inputLine.split(":")[1].split("#")[0];
+          if(name.equals("null")) {
+            stop();
+            return;
+          }
           voicePort = Integer.parseInt(inputLine.split("#")[1]);
           Core.getInstance().registeredPlayerSockets.add(name);
           Core.getInstance().unregisteredPlayerSockets.remove(name);
@@ -120,31 +124,7 @@ public class ClientThread implements Runnable {
 
         if (Core.getInstance().registeredPlayerSockets.contains(clientName)) {
           if (inputLine.equalsIgnoreCase("disconnect")) {
-            System.out.println(
-                "["
-                    + clientName
-                    + "/"
-                    + currentConnection.getInetAddress().getHostAddress()
-                    + "] Disconnected");
             stop();
-          } else if (inputLine.startsWith("mute") && inputLine.contains(" ")) {
-            mutedPlayers.add(inputLine.replace("mute ", ""));
-            System.out.println(
-                "["
-                    + clientName
-                    + "/"
-                    + currentConnection.getInetAddress().getHostAddress()
-                    + "] Muted "
-                    + inputLine.replace("mute ", ""));
-          } else if (inputLine.startsWith("unmute") && inputLine.contains(" ")) {
-            mutedPlayers.remove(inputLine.replace("unmute ", ""));
-            System.out.println(
-                "["
-                    + clientName
-                    + "/"
-                    + currentConnection.getInetAddress().getHostAddress()
-                    + "] Unmuted "
-                    + inputLine.replace("unmute ", ""));
           } else {
             try {
               ArrayList<String> nearPlayers = new ArrayList<>();
@@ -153,6 +133,7 @@ public class ClientThread implements Runnable {
 
               this.nearPlayers.clear();
               this.nearPlayers.addAll(nearPlayers);
+
             } catch (Exception e) {
               e.printStackTrace();
               if (Core.getInstance().KILL_SOCKET_IF_INVALID_MESSAGE) {
@@ -189,10 +170,8 @@ public class ClientThread implements Runnable {
     if (!isRunning) return;
     try {
       isRunning = false;
-      if (clientName != null && !clientName.isEmpty()) {
-        Core.getInstance().unregisteredPlayerSockets.add(clientName);
-        Core.getInstance().registeredPlayerSockets.remove(clientName);
-      }
+      Core.getInstance().unregisteredPlayerSockets.add(clientName);
+      Core.getInstance().registeredPlayerSockets.remove(clientName);
       in.close();
       out.close();
       currentConnection.close();
@@ -200,5 +179,12 @@ public class ClientThread implements Runnable {
     } catch (Exception e) {
       e.printStackTrace();
     }
+
+    System.out.println(
+        "["
+            + clientName
+            + "/"
+            + currentConnection.getInetAddress().getHostAddress()
+            + "] Disconnected");
   }
 }

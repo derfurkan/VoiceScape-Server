@@ -20,9 +20,7 @@ public class VoiceServerThread implements Runnable {
 
         DatagramPacket packet = new DatagramPacket(new byte[8192], 8192);
         voiceServer.receive(packet);
-
         VoicePacket rtpPacket = new VoicePacket(packet.getData(), packet.getLength());
-
         int payload_length = rtpPacket.getpayload_length();
         byte[] payload = new byte[payload_length];
         rtpPacket.getpayload(payload);
@@ -37,14 +35,12 @@ public class VoiceServerThread implements Runnable {
                           .getHostAddress()
                           .equals(packet.getAddress().getHostAddress())
                       && clientThread.voicePort == packet.getPort()) {
-
+                    clientThread.lastVoicePacket = System.currentTimeMillis();
                     Core.getInstance()
                         .clientThreads
                         .forEach(
                             otherClients -> {
-                              if (otherClients.mutedPlayers.contains(clientThread.clientName)
-                                  || otherClients.clientName.equals(clientThread.clientName))
-                                return;
+                              if (otherClients.clientName.equals(clientThread.clientName)) return;
                               if (otherClients.nearPlayers.contains(clientThread.clientName)
                                   && clientThread.nearPlayers.contains(otherClients.clientName)) {
                                 otherClients.sendBytesToVoiceClient(payload, payload_length);

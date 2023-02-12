@@ -97,8 +97,7 @@ public class VoicePacket {
       payload_size = packet_size - HEADER_SIZE;
       payload = new byte[payload_size];
       if (packet_size - HEADER_SIZE >= 0)
-        System.arraycopy(
-            packet, HEADER_SIZE, payload, 0, packet_size - HEADER_SIZE);
+        System.arraycopy(packet, HEADER_SIZE, payload, 0, packet_size - HEADER_SIZE);
 
       // interpret the changing fields of the header:
       Version = (header[0] & 0xFF) >>> 6;
