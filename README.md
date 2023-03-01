@@ -7,12 +7,11 @@ Note that this is my first project using the socket functions in java.
 Get the latest release _(or build your own)_ and run it with the following command in your command line<br/>
 `java -jar VoiceScape-Server.jar`
 
-After executing should see a message that says `-- Server started --`<br/>
-At this point you can connect to the servers with the following ip's<br/>
-`VoiceServer` - `127.0.0.1:24444`<br/>
-`MessageServer` - `127.0.0.1:23333`
-
-[VoiceScape](https://github.com/derfurkan/VoiceScape "VoiceScape") needs to connect to BOTH of them so make sure that your ports are open if you want that other players also can connect to your server.
+After executing you should see a message that says `-- Server started --`<br/>
+At this point you can connect to the server with the ip
+`127.0.0.1` on your local computer. Where the port `24444` is binded to the Voice and `23333` to the Message server.<br/><br/>
+If you want that other players can connect to your server you have to forward port `24444` and `23333`. <br/>
+There are multiple guides on the internet on how to do it with your specific internet provider.
 
 ## Code Variables
 At the code in the `Core`.java class you can see a few variables at the top.<br/>
