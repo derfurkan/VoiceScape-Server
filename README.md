@@ -4,7 +4,7 @@ Note that this is my first project using the socket functions in java.
 
 ## How to run
 #### To run the Server software you need to have [Java 17](https://www.oracle.com/java/technologies/javase/jdk17-archive-downloads.html "Java 17") installed on your system.<br/>
-Get the latest release _(or build your own)_ and run it with the following command in your command line<br/>
+Get the [latest](https://github.com/derfurkan/VoiceScape-Server/releases/tag/Latest "latest") release _(or build your own)_ and run it with the following command in your command line<br/>
 `java -jar VoiceScape-Server.jar`
 
 After executing you should see a message that says `-- Server started --`<br/>
