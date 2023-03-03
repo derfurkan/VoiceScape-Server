@@ -99,12 +99,18 @@ public class ClientThread implements Runnable {
         lastMessage = System.currentTimeMillis();
         if (inputLine.startsWith("register:")) {
           String name = inputLine.split(":")[1].split("#")[0];
-          if(name.equals("null")) {
+          if (name.equals("null") || name.isEmpty() || name.isBlank()) {
+            System.out.println(
+                "["
+                    + currentConnection.getInetAddress().getHostAddress()
+                    + "] Tried to register with invalid name, disconnecting.");
             stop();
             return;
           }
           voicePort = Integer.parseInt(inputLine.split("#")[1]);
-          Core.getInstance().registeredPlayerSockets.add(name);
+          if (!Core.getInstance().registeredPlayerSockets.contains(name)) {
+            Core.getInstance().registeredPlayerSockets.add(name);
+          }
           Core.getInstance().unregisteredPlayerSockets.remove(name);
           clientName = name;
           System.out.println(
@@ -117,7 +123,9 @@ public class ClientThread implements Runnable {
                   + " with "
                   + threadPoolExecutor.getActiveCount()
                   + " active threads. With voice port "
-                  + voicePort);
+                  + voicePort
+                  + ". Connected clients: "
+                  + Core.getInstance().registeredPlayerSockets.size());
           Core.getInstance().clientThreads.add(this);
           continue;
         }
@@ -133,7 +141,6 @@ public class ClientThread implements Runnable {
 
               this.nearPlayers.clear();
               this.nearPlayers.addAll(nearPlayers);
-
             } catch (Exception e) {
               e.printStackTrace();
               if (Core.getInstance().KILL_SOCKET_IF_INVALID_MESSAGE) {
@@ -162,7 +169,7 @@ public class ClientThread implements Runnable {
       voiceServer.send(packet);
 
     } catch (Exception e) {
-      e.printStackTrace();
+
     }
   }
 
@@ -172,6 +179,7 @@ public class ClientThread implements Runnable {
       isRunning = false;
       Core.getInstance().unregisteredPlayerSockets.add(clientName);
       Core.getInstance().registeredPlayerSockets.remove(clientName);
+      Core.getInstance().clientThreads.remove(this);
       in.close();
       out.close();
       currentConnection.close();
@@ -185,6 +193,7 @@ public class ClientThread implements Runnable {
             + clientName
             + "/"
             + currentConnection.getInetAddress().getHostAddress()
-            + "] Disconnected");
+            + "] Disconnected. Connected clients: "
+            + Core.getInstance().registeredPlayerSockets.size());
   }
 }

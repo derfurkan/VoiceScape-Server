@@ -13,9 +13,8 @@ import java.util.concurrent.TimeUnit;
 public class Core {
 
   private static final Core instance = new Core();
-
+  public static VoiceServerThread voiceServerThread;
   public final boolean KILL_SOCKET_IF_INVALID_MESSAGE = true;
-
   public final int MIN_LOGIN_TIMEOUT_MS = 5_000,
       LOGIN_SPAM_BLACKLIST_BAN_MS = 60_000,
       MIN_MESSAGE_TIMEOUT_MS = 500,
@@ -27,13 +26,11 @@ public class Core {
       MAX_CLIENTS = 50_000,
       MAX_CLIENTS_PER_IP = 5;
   public final int VOICE_SERVER_PORT = 24444, MESSAGE_SERVER_PORT = 23333;
-
   public ArrayList<String> registeredPlayerSockets = new ArrayList<>();
   public ArrayList<String> unregisteredPlayerSockets = new ArrayList<>();
   public ArrayList<String> blackListedSpamIPs = new ArrayList<>();
   public HashMap<String, Long> lastLoginIPs = new HashMap<>();
   public ArrayList<ThreadPoolExecutor> threadPools = new ArrayList<>();
-
   public ArrayList<ClientThread> clientThreads = new ArrayList<>();
 
   public static Core getInstance() {
@@ -55,7 +52,7 @@ public class Core {
   static class Server {
 
     public Server() {
-      VoiceServerThread voiceServerThread = new VoiceServerThread();
+      voiceServerThread = new VoiceServerThread();
       ServerSocket messageServer;
       try {
         messageServer = new ServerSocket(Core.getInstance().MESSAGE_SERVER_PORT);
@@ -84,6 +81,10 @@ public class Core {
             }
           }
           if (clientsPerIP >= Core.getInstance().MAX_CLIENTS_PER_IP) {
+            System.out.println(
+                "["
+                    + messageSocket.getInetAddress().getHostAddress()
+                    + "] Max clients per IP reached, closing connection");
             messageSocket.close();
             continue;
           }
@@ -160,7 +161,7 @@ public class Core {
     private ThreadPoolExecutor getThreadPool() {
       ThreadPoolExecutor threadPoolExecutor = null;
       for (ThreadPoolExecutor threadPool : Core.getInstance().threadPools) {
-        if (threadPool.getActiveCount() + 2 < Core.getInstance().MAX_THREADS_PER_POOL) {
+        if (threadPool.getActiveCount() + 1 < Core.getInstance().MAX_THREADS_PER_POOL) {
           threadPoolExecutor = threadPool;
           break;
         }

@@ -8,10 +8,10 @@ import java.util.TimerTask;
 
 public class UpdateThread implements Runnable {
 
-  private ArrayList<String> lastRegistered = new ArrayList<>();
+  public Thread thread;
 
   public UpdateThread() {
-    Thread thread = new Thread(this, "UpdateThread");
+    thread = new Thread(this, "UpdateThread");
     thread.start();
   }
 
@@ -24,6 +24,14 @@ public class UpdateThread implements Runnable {
               public void run() {
 
                 Gson gson = new Gson();
+                ArrayList<String> tempRegistered =
+                    new ArrayList<>(Core.getInstance().registeredPlayerSockets);
+                tempRegistered.forEach(
+                    player -> {
+                      if (Core.getInstance().unregisteredPlayerSockets.contains(player)) {
+                        Core.getInstance().registeredPlayerSockets.remove(player);
+                      }
+                    });
 
                 Core.getInstance()
                     .sendToAllClientThreads(
@@ -36,7 +44,6 @@ public class UpdateThread implements Runnable {
                 Core.getInstance()
                     .sendToAllClientThreads(
                         "unregister " + gson.toJson(Core.getInstance().unregisteredPlayerSockets));
-                lastRegistered = new ArrayList<>(Core.getInstance().registeredPlayerSockets);
               }
             },
             1000,

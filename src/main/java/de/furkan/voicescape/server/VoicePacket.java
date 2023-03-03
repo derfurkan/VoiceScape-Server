@@ -115,7 +115,6 @@ public class VoicePacket {
   // getpayload: return the payload bistream of the RTPpacket and its size
   // --------------------------
   public int getpayload(byte[] data) {
-
     if (payload_size >= 0) System.arraycopy(payload, 0, data, 0, payload_size);
 
     return (payload_size);
