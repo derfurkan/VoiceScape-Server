@@ -6,6 +6,6 @@ COPY . .
 
 RUN chmod +x gradlew && ./gradlew clean build -x check -x test -Pproduction
 
-EXPOSE 8080
+EXPOSE 5555
 
-CMD ["java", "-jar", "-Dserver.port=8080", "build/libs/server.jar"]
+CMD ["java", "-jar", "-Dserver.port=5555", "build/libs/server.jar"]
