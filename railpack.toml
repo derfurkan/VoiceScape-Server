@@ -1,0 +1,5 @@
+[build]
+cmd = "chmod +x gradlew && ./gradlew clean build -x check -x test -Pproduction"
+
+[start]
+cmd = "java $JAVA_OPTS -jar -Dserver.port=$PORT build/libs/server.jar"
