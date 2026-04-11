@@ -30,13 +30,6 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 jar {
-    manifest {
-        attributes 'Main-Class': 'com.voicescape.server.VoiceScapeServer'
-    }
-}
-
-tasks.register('fatJar', Jar) {
-    archiveClassifier.set('all')
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
         attributes 'Main-Class': 'com.voicescape.server.VoiceScapeServer'
@@ -44,5 +37,4 @@ tasks.register('fatJar', Jar) {
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
-    with jar
-}
+}   
