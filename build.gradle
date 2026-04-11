@@ -1,6 +1,8 @@
 plugins {
     id 'java'
     id 'application'
+    id 'org.springframework.boot' version '3.4.0'
+    id 'io.spring.dependency-management' version '1.1.6'
 }
 
 repositories {
@@ -25,18 +27,10 @@ application {
     mainClass = 'com.voicescape.server.VoiceScapeServer'
 }
 
-tasks.build.dependsOn(tasks.jar)
+springBoot {
+    mainClass = 'com.voicescape.server.VoiceScapeServer'
+}
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
-
-jar {
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    manifest {
-        attributes 'Main-Class': 'com.voicescape.server.VoiceScapeServer'
-    }
-    from {
-        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
-    }
-}   
