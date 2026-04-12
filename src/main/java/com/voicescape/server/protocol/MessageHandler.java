@@ -8,8 +8,8 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import java.nio.charset.StandardCharsets;
-import java.util.HashSet;
 import java.util.Set;
+import java.util.HashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,10 +86,6 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf>
 
             case PacketTypes.CLIENT_HASH_LIST:
                 handleHashListUpdate(ctx, session, msg);
-                break;
-
-            case PacketTypes.CLIENT_AUDIO_FRAME:
-                handleAudioFrame(ctx, session, msg);
                 break;
 
             default:
@@ -173,11 +169,13 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf>
         byte[] sessionIdBytes = session.getSessionId().getBytes(StandardCharsets.UTF_8);
         byte[] currentKey = keyManager.getCurrentKey();
         byte[] previousKey = keyManager.getPreviousKey();
+        byte[] udpKey = session.getUdpKey();
 
         int totalLen = 1  // type
             + 2 + sessionIdBytes.length
             + 2 + currentKey.length
-            + 2 + previousKey.length;
+            + 2 + previousKey.length
+            + 2 + udpKey.length;
 
         ByteBuf buf = ctx.alloc().buffer(totalLen);
         buf.writeByte(PacketTypes.SERVER_HELLO_ACK);
@@ -187,6 +185,8 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf>
         buf.writeBytes(currentKey);
         buf.writeShort(previousKey.length);
         buf.writeBytes(previousKey);
+        buf.writeShort(udpKey.length);
+        buf.writeBytes(udpKey);
 
         ctx.writeAndFlush(buf);
     }
@@ -243,78 +243,4 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf>
         session.updateNearbyHashes(hashes);
     }
 
-    // ── Debug stats per session ──
-    private long dbgLastReport = 0;
-    private int dbgFramesReceived = 0;
-    private int dbgFramesForwarded = 0;
-    private int dbgRateLimited = 0;
-    private int dbgBandwidthLimited = 0;
-
-    private void handleAudioFrame(ChannelHandlerContext ctx, Session session, ByteBuf msg)
-    {
-        if (!session.isHandshakeComplete())
-        {
-            sendErrorAndClose(ctx, "Handshake not complete");
-            return;
-        }
-
-        if (!session.checkAudioRate())
-        {
-            dbgRateLimited++;
-            log.debug("Audio rate limit exceeded for session {}", session.getSessionId());
-            return; // Silently drop, don't disconnect
-        }
-
-        if (msg.readableBytes() < 6) // seq(4) + payloadLen(2)
-        {
-            sendErrorAndClose(ctx, "Malformed audio frame");
-            return;
-        }
-
-        int sequenceNumber = msg.readInt();
-
-        int payloadLen = msg.readUnsignedShort();
-        if (payloadLen > ServerConfig.MAX_AUDIO_PAYLOAD_BYTES || msg.readableBytes() < payloadLen)
-        {
-            log.warn("Audio payload too large ({}) from session {}", payloadLen, session.getSessionId());
-            sendErrorAndClose(ctx, "Audio payload too large");
-            return;
-        }
-
-        if (!session.checkBandwidth(payloadLen))
-        {
-            dbgBandwidthLimited++;
-            log.debug("Bandwidth limit exceeded for session {}", session.getSessionId());
-            return;
-        }
-
-        byte[] opusPayload = new byte[payloadLen];
-        msg.readBytes(opusPayload);
-        dbgFramesReceived++;
-
-        // Server never decodes audio — pure byte forwarding via the routing rule
-        sessionManager.forwardAudio(session, sequenceNumber, opusPayload);
-        dbgFramesForwarded++;
-
-        // Periodic debug report
-        long now = System.currentTimeMillis();
-        if (now - dbgLastReport >= 1000)
-        {
-            if (dbgFramesReceived > 0)
-            {
-                log.info("[SERVER] session={} hash={} received={} forwarded={} rateLimited={} bwLimited={}",
-                    session.getSessionId(),
-                    session.getIdentityHash() != null
-                        ? session.getIdentityHash().substring(0, Math.min(8, session.getIdentityHash().length()))
-                        : "null",
-                    dbgFramesReceived, dbgFramesForwarded,
-                    dbgRateLimited, dbgBandwidthLimited);
-            }
-            dbgFramesReceived = 0;
-            dbgFramesForwarded = 0;
-            dbgRateLimited = 0;
-            dbgBandwidthLimited = 0;
-            dbgLastReport = now;
-        }
-    }
 }

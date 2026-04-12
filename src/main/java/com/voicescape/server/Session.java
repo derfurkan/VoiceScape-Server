@@ -1,6 +1,8 @@
 package com.voicescape.server;
 
 import io.netty.channel.Channel;
+import java.net.InetSocketAddress;
+import java.security.SecureRandom;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -17,18 +19,23 @@ public class Session
     private volatile Set<String> nearbyHashes = ConcurrentHashMap.newKeySet();
     private final AtomicLong lastUpdateTime = new AtomicLong(System.currentTimeMillis());
 
-    // Rate limiting counters (reset every second)
+    // Lock-free rate limiting: window start is packed into an AtomicLong.
+    // Counters reset lazily when any check detects the window has elapsed.
+    private final AtomicLong rateLimitWindowStart = new AtomicLong(System.currentTimeMillis());
     private final AtomicLong audioPacketCount = new AtomicLong(0);
     private final AtomicLong hashUpdateCount = new AtomicLong(0);
-    private volatile long rateLimitWindowStart = System.currentTimeMillis();
     private final AtomicLong bytesThisSecond = new AtomicLong(0);
 
     private volatile boolean handshakeComplete = false;
+    private volatile InetSocketAddress udpAddress;
+    private final byte[] udpKey;
 
     public Session(String sessionId, Channel channel)
     {
         this.sessionId = sessionId;
         this.channel = channel;
+        this.udpKey = new byte[32];
+        new SecureRandom().nextBytes(udpKey);
     }
 
     public String getSessionId()
@@ -92,23 +99,41 @@ public class Session
 
     /**
      * Check and increment rate limit counter.  Returns true if the action is allowed.
+     * Lock-free: uses CAS to reset the window. If two threads race to reset,
+     * one wins and the other just increments against the fresh counters — allowing
+     * a few extra packets at most, which is fine for audio rate limiting.
      */
-    public synchronized boolean checkAudioRate()
+    public boolean checkAudioRate()
     {
         resetWindowIfNeeded();
         return audioPacketCount.incrementAndGet() <= ServerConfig.MAX_AUDIO_PACKETS_PER_SEC;
     }
 
-    public synchronized boolean checkHashUpdateRate()
+    public boolean checkHashUpdateRate()
     {
         resetWindowIfNeeded();
         return hashUpdateCount.incrementAndGet() <= ServerConfig.MAX_HASH_UPDATES_PER_SEC;
     }
 
-    public synchronized boolean checkBandwidth(int bytes)
+    public boolean checkBandwidth(int bytes)
     {
         resetWindowIfNeeded();
         return bytesThisSecond.addAndGet(bytes) <= ServerConfig.MAX_BANDWIDTH_BPS / 8;
+    }
+
+    public byte[] getUdpKey()
+    {
+        return udpKey;
+    }
+
+    public InetSocketAddress getUdpAddress()
+    {
+        return udpAddress;
+    }
+
+    public void setUdpAddress(InetSocketAddress udpAddress)
+    {
+        this.udpAddress = udpAddress;
     }
 
     public boolean isTimedOut()
@@ -119,12 +144,16 @@ public class Session
     private void resetWindowIfNeeded()
     {
         long now = System.currentTimeMillis();
-        if (now - rateLimitWindowStart >= 1000)
+        long windowStart = rateLimitWindowStart.get();
+        if (now - windowStart >= 1000)
         {
-            rateLimitWindowStart = now;
-            audioPacketCount.set(0);
-            hashUpdateCount.set(0);
-            bytesThisSecond.set(0);
+            // CAS ensures only one thread resets; losers just proceed
+            if (rateLimitWindowStart.compareAndSet(windowStart, now))
+            {
+                audioPacketCount.set(0);
+                hashUpdateCount.set(0);
+                bytesThisSecond.set(0);
+            }
         }
     }
 }

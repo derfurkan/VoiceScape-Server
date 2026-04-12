@@ -1,6 +1,11 @@
 package com.voicescape.server;
 
 import io.netty.channel.Channel;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.DatagramSocket;
+import java.net.DatagramPacket;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -22,8 +27,24 @@ public class SessionManager
 
     private final Map<Channel, Session> sessionsByChannel = new ConcurrentHashMap<>();
     private final Map<String, Session> sessionsByHash = new ConcurrentHashMap<>();
+    private final Map<String, Session> sessionsBySessionId = new ConcurrentHashMap<>();
+    private final Map<InetSocketAddress, Session> sessionsByUdpAddress = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> connectionsPerIp = new ConcurrentHashMap<>();
     private final ScheduledExecutorService reaper;
+
+    // Each worker thread gets its own DatagramSocket for outbound sends.
+    // This avoids funneling all writes through one Netty event loop thread.
+    private static final ThreadLocal<DatagramSocket> SEND_SOCKET = ThreadLocal.withInitial(() ->
+    {
+        try
+        {
+            return new DatagramSocket();
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException("Failed to create UDP send socket", e);
+        }
+    });
 
     private boolean loopbackEnabled = false;
 
@@ -95,6 +116,7 @@ public class SessionManager
         String sessionId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         Session session = new Session(sessionId, channel);
         sessionsByChannel.put(channel, session);
+        sessionsBySessionId.put(sessionId, session);
 
         log.debug("Session created: {} from {}", sessionId, ip);
         return CreateResult.success(session);
@@ -105,10 +127,18 @@ public class SessionManager
         Session session = sessionsByChannel.remove(channel);
         if (session != null)
         {
+            sessionsBySessionId.remove(session.getSessionId());
+
             String hash = session.getIdentityHash();
             if (hash != null)
             {
                 sessionsByHash.remove(hash, session);
+            }
+
+            InetSocketAddress udpAddr = session.getUdpAddress();
+            if (udpAddr != null)
+            {
+                sessionsByUdpAddress.remove(udpAddr);
             }
 
             String ip = getIp(channel);
@@ -138,6 +168,35 @@ public class SessionManager
         {
             sessionsByHash.put(newHash, session);
         }
+    }
+
+    public void registerUdpAddress(String sessionId, InetSocketAddress address)
+    {
+        Session session = sessionsBySessionId.get(sessionId);
+        if (session == null)
+        {
+            log.debug("UDP registration for unknown session: {}", sessionId);
+            return;
+        }
+
+        // Remove old mapping if address changed
+        InetSocketAddress oldAddr = session.getUdpAddress();
+        if (oldAddr != null)
+        {
+            sessionsByUdpAddress.remove(oldAddr);
+        }
+
+        session.setUdpAddress(address);
+        sessionsByUdpAddress.put(address, session);
+        if(oldAddr == null || !oldAddr.equals(address)) {
+    log.debug("UDP address registered for session {}: {}", sessionId, address);
+        }
+    
+    }
+
+    public Session getSessionByUdpAddress(InetSocketAddress address)
+    {
+        return sessionsByUdpAddress.get(address);
     }
 
     public Session getSession(Channel channel)
@@ -170,10 +229,21 @@ public class SessionManager
             return;
         }
 
+        // Pre-build the header once for all receivers:
+        // [type:1][hashLen:2][hash:N][seq:4]
+        byte[] senderHashBytes = senderHash.getBytes(StandardCharsets.UTF_8);
+        byte[] header = buildAudioHeader(senderHashBytes, sequenceNumber);
+        if (header == null)
+        {
+            return;
+        }
+
+        DatagramSocket ds = SEND_SOCKET.get();
+
         // Server loopback: echo audio back to the sender for full-path testing
         if (loopbackEnabled)
         {
-            sendAudioToReceiver(sender, senderHash, sequenceNumber, opusPayload);
+            sendAudioToReceiver(ds, sender, header, sequenceNumber, opusPayload);
         }
 
         // Use the hash index for O(K) lookup instead of O(N) session scan,
@@ -195,33 +265,70 @@ public class SessionManager
             // now check that receiver also lists sender
             if (receiver.getNearbyHashes().contains(senderHash))
             {
-                sendAudioToReceiver(receiver, senderHash, sequenceNumber, opusPayload);
+                sendAudioToReceiver(ds, receiver, header, sequenceNumber, opusPayload);
             }
         }
     }
 
-    private void sendAudioToReceiver(Session receiver, String senderHash, int sequenceNumber, byte[] opusPayload)
+    /**
+     * Build the fixed portion of the outbound audio packet header.
+     * Reused for every receiver of the same sender's frame.
+     */
+    private byte[] buildAudioHeader(byte[] senderHashBytes, int sequenceNumber)
     {
-        Channel channel = receiver.getChannel();
-        if (!channel.isActive())
+        try
+        {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream(1 + 2 + senderHashBytes.length + 4);
+            DataOutputStream out = new DataOutputStream(baos);
+            out.writeByte(com.voicescape.server.protocol.PacketTypes.SERVER_AUDIO_FRAME);
+            out.writeShort(senderHashBytes.length);
+            out.write(senderHashBytes);
+            out.writeInt(sequenceNumber);
+            return baos.toByteArray();
+        }
+        catch (IOException e)
+        {
+            return null;
+        }
+    }
+
+    /**
+     * Encrypt and send an audio frame directly via DatagramSocket.
+     * Called from worker threads — each thread uses its own socket,
+     * so no serialization bottleneck.
+     */
+    private void sendAudioToReceiver(DatagramSocket ds, Session receiver, byte[] header,
+                                     int sequenceNumber, byte[] opusPayload)
+    {
+        InetSocketAddress udpAddr = receiver.getUdpAddress();
+        if (udpAddr == null)
         {
             return;
         }
 
-        // Build server audio frame:
-        // [type:1][hashLen:2][hash:N][seq:4][payloadLen:2][payload:N]
-        byte[] hashBytes = senderHash.getBytes(StandardCharsets.UTF_8);
-        int totalLen = 1 + 2 + hashBytes.length + 4 + 2 + opusPayload.length;
+        byte[] encrypted;
+        try
+        {
+            encrypted = UdpCrypto.encrypt(receiver.getUdpKey(), sequenceNumber, opusPayload);
+        }
+        catch (Exception e)
+        {
+            return;
+        }
 
-        io.netty.buffer.ByteBuf buf = channel.alloc().buffer(totalLen);
-        buf.writeByte(com.voicescape.server.protocol.PacketTypes.SERVER_AUDIO_FRAME);
-        buf.writeShort(hashBytes.length);
-        buf.writeBytes(hashBytes);
-        buf.writeInt(sequenceNumber);
-        buf.writeShort(opusPayload.length);
-        buf.writeBytes(opusPayload);
+        // Combine header + encrypted payload into one packet
+        byte[] packet = new byte[header.length + encrypted.length];
+        System.arraycopy(header, 0, packet, 0, header.length);
+        System.arraycopy(encrypted, 0, packet, header.length, encrypted.length);
 
-        channel.writeAndFlush(buf);
+        try
+        {
+            ds.send(new DatagramPacket(packet, packet.length, udpAddr));
+        }
+        catch (IOException e)
+        {
+            log.debug("UDP send failed for session {}: {}", receiver.getSessionId(), e.getMessage());
+        }
     }
 
     public void broadcastKeyRotation(byte[] newKey)
@@ -257,6 +364,8 @@ public class SessionManager
         }
         sessionsByChannel.clear();
         sessionsByHash.clear();
+        sessionsBySessionId.clear();
+        sessionsByUdpAddress.clear();
         connectionsPerIp.clear();
     }
 

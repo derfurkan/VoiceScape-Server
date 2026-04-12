@@ -16,7 +16,7 @@
             "name": "VoiceScapeServer-Loopback",
             "request": "launch",
             "mainClass": "com.voicescape.server.VoiceScapeServer",
-            "projectName": "VoiceScapeServer",
+            "projectName": "VoiceScape-Server",
             "args": "--loopback"
         }
     ]
