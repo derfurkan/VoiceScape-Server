@@ -16,13 +16,11 @@ import org.slf4j.LoggerFactory;
 /**
  * Handles decoded messages from clients.
  * Each channel gets its own handler instance (not @Sharable).
- *
  * Handshake flow:
  * 1. Client sends CLIENT_HELLO: [protocolVersion:4][sessionIdLen:2][sessionId]
- * 2. Server sends SERVER_HELLO_ACK: [sessionId][dailyKey][previousKey][udpKey]
+ * 2. Server sends SERVER_HELLO_ACK: [sessionId][dailyKey][udpKey]
  * 3. Client sends CLIENT_IDENTITY: [hashLen:2][hash]
  * 4. Server registers hash, handshake complete
- *
  * On reconnect, client sends its previous sessionId in step 1.
  * Server reclaims the old session and rebinds it to the new channel.
  * On key rotation, client sends CLIENT_IDENTITY again with the new hash.
@@ -64,7 +62,7 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) throws Exception {
+    protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
         Session session = sessionManager.getSession(ctx.channel());
         if (session == null) {
             ctx.close();
@@ -139,7 +137,7 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
         }
 
         int sessionIdLen = msg.readUnsignedShort();
-        if (sessionIdLen > ServerConfig.MAX_SID_LENGHT || msg.readableBytes() < sessionIdLen) {
+        if (sessionIdLen > ServerConfig.MAX_SID_LENGTH || msg.readableBytes() < sessionIdLen) {
             log.warn("Invalid SessionId length {} from session {}", sessionIdLen, session.getSessionId());
             sendErrorAndClose(ctx, "Invalid SessionId");
             return;

@@ -47,7 +47,7 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket packet) throws Exception
+    protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket packet)
     {
         ByteBuf buf = packet.content();
         InetSocketAddress sender = packet.sender();
@@ -66,7 +66,6 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
                 break;
 
             case PacketTypes.CLIENT_AUDIO_FRAME:
-                // Copy the data we need before the ByteBuf is released
                 if (buf.readableBytes() < 4)
                 {
                     return;
@@ -105,6 +104,10 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         byte[] sessionIdBytes = new byte[sessionIdLen];
         buf.readBytes(sessionIdBytes);
         String sessionId = new String(sessionIdBytes, StandardCharsets.UTF_8);
+        if(sessionManager.getSessionById(sessionId) != null && !sessionManager.getSessionById(sessionId).isHandshakeComplete()) {
+            log.debug("Rejected UDP Register (Session not found)");
+            return;
+        }
 
         sessionManager.registerUdpAddress(sessionId, sender);
     }
