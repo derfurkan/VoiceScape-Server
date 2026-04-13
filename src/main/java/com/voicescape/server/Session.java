@@ -31,14 +31,11 @@ public class Session {
     private volatile boolean helloReceived = false;
     private volatile boolean handshakeComplete = false;
     private volatile InetSocketAddress udpAddress;
-    private final byte[] udpKey;
-
-    private volatile SecretKeySpec udpKeySpec;
-
+    private final SecretKeySpec udpKeySpec;
     public Session(String sessionId, Channel channel) {
         this.sessionId = sessionId;
         this.channel = channel;
-        this.udpKey = new byte[32];
+        byte[] udpKey = new byte[32];
         new SecureRandom().nextBytes(udpKey);
         this.udpKeySpec = new SecretKeySpec(udpKey,0,16,"AES");
     }
@@ -47,7 +44,9 @@ public class Session {
         return udpKeySpec;
     }
 
-    public synchronized boolean canReceiveFrom(String senderHash) {
+    // Recode this
+
+    public boolean canReceiveFrom(String senderHash) {
         long now = System.currentTimeMillis();
 
         if (activeSpeakers.get(senderHash) != null) {

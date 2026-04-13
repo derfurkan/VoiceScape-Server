@@ -213,7 +213,7 @@ public class SessionManager {
         return sessionsBySessionId.get(sessionId);
     }
 
-    // Hot
+
     public void forwardAudio(Session sender, int sequenceNumber, byte[] opusPayload) {
         String senderHash = sender.getIdentityHash();
         if (senderHash == null) {

@@ -210,7 +210,7 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
     private void sendHelloAck(ChannelHandlerContext ctx, Session session) {
         byte[] sessionIdBytes = session.getSessionId().getBytes(StandardCharsets.UTF_8);
         byte[] currentKey = keyManager.getCurrentKey();
-        byte[] udpKey = session.getUdpKey();
+        byte[] udpKey = session.getUdpKeySpec().getEncoded();
 
         int totalLen = 1
                 + 2 + sessionIdBytes.length
