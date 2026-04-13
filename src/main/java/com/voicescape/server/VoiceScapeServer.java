@@ -73,8 +73,7 @@ public class VoiceScapeServer
         udpBootstrap.group(workerGroup)
             .channel(NioDatagramChannel.class)
             .option(ChannelOption.SO_BROADCAST, false)
-            .option(ChannelOption.SO_RCVBUF, 512 * 1024) 
-            .option(ChannelOption.SO_SNDBUF, 512 * 1024) 
+            .option(ChannelOption.SO_RCVBUF, 2000 * 1024)
             .handler(new ChannelInitializer<DatagramChannel>()
             {
                 @Override
@@ -83,7 +82,7 @@ public class VoiceScapeServer
                     ch.pipeline().addLast("handler", new UdpAudioHandler(sessionManager));
                 }
             });
-        udpBootstrap.bind(port).sync();
+        sessionManager.setUdpSendSocket((NioDatagramChannel) udpBootstrap.bind(port).sync().channel());
 
         log.info("VoiceScape server started on port {}", port);
         log.info("  Max connections: {}", ServerConfig.GLOBAL_CONNECTION_CEILING);

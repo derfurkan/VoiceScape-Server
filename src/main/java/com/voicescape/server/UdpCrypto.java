@@ -29,21 +29,20 @@ public final class UdpCrypto
     // Reusable IV buffer per thread — avoids allocating 16 bytes per packet
     private static final ThreadLocal<byte[]> IV_BUF = ThreadLocal.withInitial(() -> new byte[16]);
 
-    public static byte[] encrypt(byte[] key, int sequenceNumber, byte[] data)
+    public static byte[] encrypt(SecretKeySpec keySpec, int sequenceNumber, byte[] data)
     {
-        return process(key, sequenceNumber, data, Cipher.ENCRYPT_MODE);
+        return process(keySpec, sequenceNumber, data, Cipher.ENCRYPT_MODE);
     }
 
-    public static byte[] decrypt(byte[] key, int sequenceNumber, byte[] data)
+    public static byte[] decrypt(SecretKeySpec keySpec, int sequenceNumber, byte[] data)
     {
-        return process(key, sequenceNumber, data, Cipher.DECRYPT_MODE);
+        return process(keySpec, sequenceNumber, data, Cipher.DECRYPT_MODE);
     }
 
-    private static byte[] process(byte[] key, int sequenceNumber, byte[] data, int mode)
+    private static byte[] process(SecretKeySpec keySpec, int sequenceNumber, byte[] data, int mode)
     {
         try
         {
-            SecretKeySpec keySpec = new SecretKeySpec(key, 0, 16, "AES");
 
             byte[] iv = IV_BUF.get();
             iv[0] = (byte) (sequenceNumber >> 24);

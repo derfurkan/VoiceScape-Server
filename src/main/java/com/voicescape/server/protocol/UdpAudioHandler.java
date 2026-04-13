@@ -31,7 +31,7 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
     public UdpAudioHandler(SessionManager sessionManager)
     {
         this.sessionManager = sessionManager;
-        this.audioWorkers = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), r ->
+        this.audioWorkers = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2, r ->
         {
             Thread t = new Thread(r, "VoiceScape-AudioWorker");
             t.setDaemon(true);
@@ -104,11 +104,12 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         byte[] sessionIdBytes = new byte[sessionIdLen];
         buf.readBytes(sessionIdBytes);
         String sessionId = new String(sessionIdBytes, StandardCharsets.UTF_8);
-        if(sessionManager.getSessionById(sessionId) != null && !sessionManager.getSessionById(sessionId).isHandshakeComplete()) {
+        Session session = sessionManager.getSessionById(sessionId);
+        if((session != null && !session.isHandshakeComplete())) {
             log.debug("Rejected UDP Register (Session not found)");
             return;
         }
-
+        log.debug("Received UDP Register for Session " + sessionId + " " + sender.getPort());
         sessionManager.registerUdpAddress(sessionId, sender);
     }
 
@@ -133,7 +134,7 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         byte[] opusPayload;
         try
         {
-            opusPayload = UdpCrypto.decrypt(session.getUdpKey(), sequenceNumber, encrypted);
+            opusPayload = UdpCrypto.decrypt(session.getUdpKeySpec(), sequenceNumber, encrypted);
         }
         catch (Exception e)
         {

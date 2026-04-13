@@ -1,6 +1,8 @@
 package com.voicescape.server;
 
 import io.netty.channel.Channel;
+
+import javax.crypto.spec.SecretKeySpec;
 import java.net.InetSocketAddress;
 import java.security.SecureRandom;
 import java.util.Set;
@@ -13,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class Session {
     private final String sessionId;
-    private Channel channel;
+    private volatile Channel channel;
     private volatile String identityHash;
     private volatile Set<String> nearbyHashes = ConcurrentHashMap.newKeySet();
     private final AtomicLong lastUpdateTime = new AtomicLong(System.currentTimeMillis());
@@ -31,14 +33,21 @@ public class Session {
     private volatile InetSocketAddress udpAddress;
     private final byte[] udpKey;
 
+    private volatile SecretKeySpec udpKeySpec;
+
     public Session(String sessionId, Channel channel) {
         this.sessionId = sessionId;
         this.channel = channel;
         this.udpKey = new byte[32];
         new SecureRandom().nextBytes(udpKey);
+        this.udpKeySpec = new SecretKeySpec(udpKey,0,16,"AES");
     }
 
-    public boolean canReceiveFrom(String senderHash) {
+    public SecretKeySpec getUdpKeySpec() {
+        return udpKeySpec;
+    }
+
+    public synchronized boolean canReceiveFrom(String senderHash) {
         long now = System.currentTimeMillis();
 
         if (activeSpeakers.get(senderHash) != null) {
@@ -138,10 +147,6 @@ public class Session {
     public boolean checkBandwidth(int bytes) {
         resetWindowIfNeeded();
         return bytesThisSecond.addAndGet(bytes) <= ServerConfig.MAX_BANDWIDTH_BPS / 8;
-    }
-
-    public byte[] getUdpKey() {
-        return udpKey;
     }
 
     public InetSocketAddress getUdpAddress() {
