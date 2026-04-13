@@ -7,10 +7,6 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Manages daily HMAC key rotation.
- * Keeps the current and previous key so clients can transition gracefully.
- */
 public class DailyKeyManager
 {
     private static final Logger log = LoggerFactory.getLogger(DailyKeyManager.class);
@@ -25,23 +21,16 @@ public class DailyKeyManager
     });
 
     private volatile byte[] currentKey;
-    private volatile byte[] previousKey;
     private volatile Runnable onRotation;
 
     public DailyKeyManager()
     {
         this.currentKey = generateKey();
-        this.previousKey = generateKey();
     }
 
     public byte[] getCurrentKey()
     {
         return currentKey;
-    }
-
-    public byte[] getPreviousKey()
-    {
-        return previousKey;
     }
 
     public void setOnRotation(Runnable callback)
@@ -73,7 +62,6 @@ public class DailyKeyManager
 
     private void rotate()
     {
-        previousKey = currentKey;
         currentKey = generateKey();
         log.info("Daily key rotated");
 

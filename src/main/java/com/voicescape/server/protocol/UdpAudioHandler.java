@@ -31,8 +31,7 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
     public UdpAudioHandler(SessionManager sessionManager)
     {
         this.sessionManager = sessionManager;
-        int threads = Math.max(2, Runtime.getRuntime().availableProcessors());
-        this.audioWorkers = Executors.newFixedThreadPool(threads, r ->
+        this.audioWorkers = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), r ->
         {
             Thread t = new Thread(r, "VoiceScape-AudioWorker");
             t.setDaemon(true);
@@ -81,7 +80,6 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
                 byte[] encrypted = new byte[payloadLen];
                 buf.readBytes(encrypted);
 
-                // Offload crypto + routing to worker pool
                 audioWorkers.execute(() -> processAudioFrame(sender, sequenceNumber, encrypted));
                 break;
 

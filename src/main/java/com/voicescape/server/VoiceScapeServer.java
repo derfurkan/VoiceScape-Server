@@ -15,6 +15,9 @@ import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+
+import java.util.Scanner;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,7 +53,7 @@ public class VoiceScapeServer
         ServerBootstrap bootstrap = new ServerBootstrap();
         bootstrap.group(bossGroup, workerGroup)
             .channel(NioServerSocketChannel.class)
-            .option(ChannelOption.SO_BACKLOG, 128)
+            .option(ChannelOption.SO_BACKLOG, 100)
             .childOption(ChannelOption.SO_KEEPALIVE, true)
             .childOption(ChannelOption.TCP_NODELAY, true)
             .childHandler(new ChannelInitializer<SocketChannel>()
@@ -66,7 +69,6 @@ public class VoiceScapeServer
 
         ChannelFuture future = bootstrap.bind(port).sync();
 
-        // UDP bootstrap for audio transport (same port)
         Bootstrap udpBootstrap = new Bootstrap();
         udpBootstrap.group(workerGroup)
             .channel(NioDatagramChannel.class)
@@ -93,7 +95,6 @@ public class VoiceScapeServer
             log.warn("  Loopback: ENABLED - audio echoed back to senders (testing only!)");
         }
 
-        // Block until server channel closes
         future.channel().closeFuture().sync();
     }
 
@@ -133,7 +134,6 @@ public class VoiceScapeServer
 
         VoiceScapeServer server = new VoiceScapeServer(port, loopback);
 
-        // Graceful shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown, "VoiceScape-Shutdown"));
 
         try
