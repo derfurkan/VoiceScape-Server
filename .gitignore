@@ -22,6 +22,20 @@
 hs_err_pid*
 replay_pid*
 
+<<<<<<< HEAD
 .gradle/
 build/
 .vscode/
+=======
+# Gradle
+.gradle/
+build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Railpack (superseded by Dockerfile)
+railpack.toml
+>>>>>>> 5c16bb9846c95553b3b05f8e46b69b3acfbeda4a
