@@ -9,36 +9,28 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Per-connection session state. Stored in RAM only, wiped on disconnect.
- * No identifying info is ever written to disk or logs.
- */
 public class Session {
     private final String sessionId;
-    private volatile Channel channel;
-    private volatile String identityHash;
-    private volatile Set<String> nearbyHashes = ConcurrentHashMap.newKeySet();
     private final AtomicLong lastUpdateTime = new AtomicLong(System.currentTimeMillis());
-
-    // Lock-free rate limiting: window start is packed into an AtomicLong.
-    // Counters reset lazily when any check detects the window has elapsed.
     private final AtomicLong rateLimitWindowStart = new AtomicLong(System.currentTimeMillis());
     private final AtomicLong audioPacketCount = new AtomicLong(0);
     private final AtomicLong hashUpdateCount = new AtomicLong(0);
     private final AtomicLong bytesThisSecond = new AtomicLong(0);
     private final ConcurrentHashMap<String, Long> activeSpeakers = new ConcurrentHashMap<>();
-
+    private final SecretKeySpec udpKeySpec;
+    private volatile Channel channel;
+    private volatile String identityHash;
+    private volatile Set<String> nearbyHashes = ConcurrentHashMap.newKeySet();
     private volatile boolean helloReceived = false;
     private volatile boolean handshakeComplete = false;
-
     private volatile InetSocketAddress udpAddress;
-    private final SecretKeySpec udpKeySpec;
+
     public Session(String sessionId, Channel channel) {
         this.sessionId = sessionId;
         this.channel = channel;
         byte[] udpKey = new byte[32];
         new SecureRandom().nextBytes(udpKey);
-        this.udpKeySpec = new SecretKeySpec(udpKey,0,16,"AES");
+        this.udpKeySpec = new SecretKeySpec(udpKey, 0, 16, "AES");
     }
 
     public SecretKeySpec getUdpKeySpec() {
@@ -46,24 +38,23 @@ public class Session {
     }
 
     // Recode this
-
     public boolean canReceiveFrom(String senderHash) {
-//        long now = System.currentTimeMillis();
-//
-//        if (activeSpeakers.get(senderHash) != null) {
-//            activeSpeakers.put(senderHash, now);
-//            return true;
-//        }
-//
-//        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
-//            activeSpeakers.entrySet().removeIf(e -> now - e.getValue() >= ServerConfig.FORWARD_CLIENT_TIMEOUT_MS);
-//        }
-//
-//        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
-//            return false;
-//        }
-//
-//        activeSpeakers.put(senderHash, now);
+        long now = System.currentTimeMillis();
+
+        if (activeSpeakers.get(senderHash) != null) {
+            activeSpeakers.put(senderHash, now);
+            return true;
+        }
+
+        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
+            activeSpeakers.entrySet().removeIf(e -> now - e.getValue() >= ServerConfig.FORWARD_CLIENT_TIMEOUT_MS);
+        }
+
+        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
+            return false;
+        }
+
+        activeSpeakers.put(senderHash, now);
         return true;
     }
 
@@ -88,8 +79,6 @@ public class Session {
     }
 
     public void updateNearbyHashes(Set<String> hashes) {
-        // Build a new set and swap atomically to avoid a window where
-        // the set is empty (which would break concurrent forwardAudio reads).
         Set<String> replacement = ConcurrentHashMap.newKeySet();
         int count = 0;
         for (String hash : hashes) {
@@ -105,10 +94,6 @@ public class Session {
 
     public void updateChannel(Channel channel) {
         this.channel = channel;
-    }
-
-    public long getLastUpdateTime() {
-        return lastUpdateTime.get();
     }
 
     public boolean isHelloReceived() {
@@ -127,13 +112,6 @@ public class Session {
         this.handshakeComplete = complete;
     }
 
-    /**
-     * Check and increment rate limit counter. Returns true if the action is
-     * allowed.
-     * Lock-free: uses CAS to reset the window. If two threads race to reset,
-     * one wins and the other just increments against the fresh counters — allowing
-     * a few extra packets at most, which is fine for audio rate limiting.
-     */
     public boolean checkAudioRate() {
         resetWindowIfNeeded();
         return audioPacketCount.incrementAndGet() <= ServerConfig.MAX_AUDIO_PACKETS_PER_SEC;
@@ -165,7 +143,6 @@ public class Session {
         long now = System.currentTimeMillis();
         long windowStart = rateLimitWindowStart.get();
         if (now - windowStart >= 1000) {
-            // CAS ensures only one thread resets; losers just proceed
             if (rateLimitWindowStart.compareAndSet(windowStart, now)) {
                 audioPacketCount.set(0);
                 hashUpdateCount.set(0);

@@ -7,24 +7,13 @@ import com.voicescape.server.SessionManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-import java.nio.charset.StandardCharsets;
-import java.util.Set;
-import java.util.HashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Handles decoded messages from clients.
- * Each channel gets its own handler instance (not @Sharable).
- * Handshake flow:
- * 1. Client sends CLIENT_HELLO: [protocolVersion:4][sessionIdLen:2][sessionId]
- * 2. Server sends SERVER_HELLO_ACK: [sessionId][dailyKey][udpKey]
- * 3. Client sends CLIENT_IDENTITY: [hashLen:2][hash]
- * 4. Server registers hash, handshake complete
- * On reconnect, client sends its previous sessionId in step 1.
- * Server reclaims the old session and rebinds it to the new channel.
- * On key rotation, client sends CLIENT_IDENTITY again with the new hash.
- */
+import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
+import java.util.Set;
+
 public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
     private static final Logger log = LoggerFactory.getLogger(MessageHandler.class);
 
@@ -57,7 +46,7 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-      //  sessionManager.removeSession(ctx.channel());
+        // Reaper takes care of this
         super.channelInactive(ctx);
     }
 
@@ -111,11 +100,6 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
         ctx.writeAndFlush(buf).addListener(io.netty.channel.ChannelFutureListener.CLOSE);
     }
 
-    /**
-     * Step 1: CLIENT_HELLO — connection setup + optional session reclaim.
-     * Format: [protocolVersion:4][sessionIdLen:2][sessionId]
-     * Server responds with HelloAck containing keys and session ID.
-     */
     private void handleHello(ChannelHandlerContext ctx, Session session, ByteBuf msg) {
         if (session.isHelloReceived()) {
             log.warn("Duplicate Hello from session {}", session.getSessionId());
@@ -147,7 +131,6 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
         msg.readBytes(sessionIdBytes);
         String clientSessionId = new String(sessionIdBytes, StandardCharsets.UTF_8);
 
-        // Attempt to reclaim a previous session on reconnect
         if (sessionIdLen > 0) {
             Session existingSession = sessionManager.getSessionById(clientSessionId);
             if (existingSession != null && existingSession != session) {
@@ -158,7 +141,7 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
                 log.debug("Session {} reclaimed on new channel", clientSessionId);
                 sendHelloAck(ctx, session);
                 return;
-            } else if(existingSession == null) {
+            } else if (existingSession == null) {
                 log.debug("Client attempted to reclaim but SessionId {} does not exist.", clientSessionId);
             }
         }
@@ -205,6 +188,7 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
 
         session.setHandshakeComplete(true);
         log.debug("Identity registered for session {}, handshake complete", session.getSessionId());
+
     }
 
     private void sendHelloAck(ChannelHandlerContext ctx, Session session) {

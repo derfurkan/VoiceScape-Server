@@ -8,72 +8,57 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.socket.DatagramPacket;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Handles inbound UDP packets: registration (0x20) and audio frames (0x03).
- * Audio processing (decrypt + routing + encrypt) is offloaded to a thread pool
- * so the single UDP I/O thread isn't blocked by crypto or routing work.
- */
-public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
-{
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+
+public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket> {
     private static final Logger log = LoggerFactory.getLogger(UdpAudioHandler.class);
-    private static final byte MSG_UDP_REGISTER = 0x20;
 
     private final SessionManager sessionManager;
     private final ExecutorService audioWorkers;
+    private final boolean ownsExecutor;
 
-    public UdpAudioHandler(SessionManager sessionManager)
-    {
+    public UdpAudioHandler(SessionManager sessionManager, ExecutorService sharedAudioWorkers) {
         this.sessionManager = sessionManager;
-        this.audioWorkers = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2, r ->
-        {
-            Thread t = new Thread(r, "VoiceScape-AudioWorker");
-            t.setDaemon(true);
-            return t;
-        });
+        this.audioWorkers = sharedAudioWorkers;
+        this.ownsExecutor = false;
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception
-    {
-        audioWorkers.shutdown();
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        if (ownsExecutor) {
+            audioWorkers.shutdown();
+        }
         super.channelInactive(ctx);
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket packet)
-    {
+    protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket packet) {
         ByteBuf buf = packet.content();
         InetSocketAddress sender = packet.sender();
 
-        if (buf.readableBytes() < 1)
-        {
+        if (buf.readableBytes() < 1) {
             return;
         }
 
         byte type = buf.readByte();
 
-        switch (type)
-        {
-            case MSG_UDP_REGISTER:
+        switch (type) {
+            case PacketTypes.CLIENT_UDP_REGISTER:
                 handleUdpRegister(sender, buf);
                 break;
 
             case PacketTypes.CLIENT_AUDIO_FRAME:
-                if (buf.readableBytes() < 4)
-                {
+                if (buf.readableBytes() < 4) {
                     return;
                 }
                 int sequenceNumber = buf.readInt();
                 int payloadLen = buf.readableBytes();
-                if (payloadLen <= 0 || payloadLen > ServerConfig.MAX_AUDIO_PAYLOAD_BYTES)
-                {
+                if (payloadLen <= 0 || payloadLen > ServerConfig.MAX_AUDIO_PAYLOAD_BYTES) {
                     return;
                 }
                 byte[] encrypted = new byte[payloadLen];
@@ -88,16 +73,13 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         }
     }
 
-    private void handleUdpRegister(InetSocketAddress sender, ByteBuf buf)
-    {
-        if (buf.readableBytes() < 2)
-        {
+    private void handleUdpRegister(InetSocketAddress sender, ByteBuf buf) {
+        if (buf.readableBytes() < 2) {
             return;
         }
 
         int sessionIdLen = buf.readUnsignedShort();
-        if (sessionIdLen > 256 || buf.readableBytes() < sessionIdLen)
-        {
+        if (sessionIdLen > 256 || buf.readableBytes() < sessionIdLen) {
             return;
         }
 
@@ -105,7 +87,7 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         buf.readBytes(sessionIdBytes);
         String sessionId = new String(sessionIdBytes, StandardCharsets.UTF_8);
         Session session = sessionManager.getSessionById(sessionId);
-        if((session != null && !session.isHandshakeComplete())) {
+        if ((session != null && !session.isHandshakeComplete())) {
             log.debug("Rejected UDP Register (Session not found)");
             return;
         }
@@ -113,31 +95,17 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         sessionManager.registerUdpAddress(sessionId, sender);
     }
 
-    private void processAudioFrame(InetSocketAddress sender, int sequenceNumber, byte[] encrypted)
-    {
+    private void processAudioFrame(InetSocketAddress sender, int sequenceNumber, byte[] encrypted) {
         Session session = sessionManager.getSessionByUdpAddress(sender);
-        if (session == null || !session.isHandshakeComplete())
-        {
-            return;
-        }
-
-        if (!session.checkAudioRate())
-        {
-            return;
-        }
-
-        if (!session.checkBandwidth(encrypted.length))
-        {
+        if (session == null || !session.isHandshakeComplete() || !session.checkAudioRate()
+                || !session.checkBandwidth(encrypted.length)) {
             return;
         }
 
         byte[] opusPayload;
-        try
-        {
+        try {
             opusPayload = UdpCrypto.decrypt(session.getUdpKeySpec(), sequenceNumber, encrypted);
-        }
-        catch (Exception e)
-        {
+        } catch (Exception e) {
             log.debug("UDP decrypt failed for session {}", session.getSessionId());
             return;
         }
@@ -146,8 +114,7 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
     }
 
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
-    {
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         log.debug("UDP handler exception: {}", cause.getMessage());
     }
 }

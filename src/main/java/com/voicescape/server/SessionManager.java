@@ -1,35 +1,19 @@
 package com.voicescape.server;
 
-import com.voicescape.server.protocol.UdpAudioHandler;
+import com.voicescape.server.protocol.PacketTypes;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.net.DatagramSocket;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-
+import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.DatagramPacket;
-import io.netty.channel.socket.nio.NioDatagramChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.voicescape.server.protocol.PacketTypes;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Manages all active sessions and enforces connection limits.
- */
 public class SessionManager {
     private static final Logger log = LoggerFactory.getLogger(SessionManager.class);
 
@@ -39,23 +23,12 @@ public class SessionManager {
     private final Map<InetSocketAddress, Session> sessionsByUdpAddress = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> connectionsPerIp = new ConcurrentHashMap<>();
     private final ScheduledExecutorService reaper;
+    private final boolean loopback;
 
-    private NioDatagramChannel udpSendSocket;
+    private final List<DatagramChannel> udpSendChannels = new CopyOnWriteArrayList<>();
 
-    public void setUdpSendSocket(NioDatagramChannel channel) {
-        this.udpSendSocket = channel;
-    }
-
-    private boolean loopbackEnabled = false;
-
-    public void setLoopbackEnabled(boolean enabled) {
-        this.loopbackEnabled = enabled;
-        if (enabled) {
-            log.warn("Server loopback enabled - audio will be echoed back to senders (testing only)");
-        }
-    }
-
-    public SessionManager() {
+    public SessionManager(boolean loopback) {
+        this.loopback = loopback;
         reaper = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "VoiceScape-SessionReaper");
             thread.setDaemon(true);
@@ -65,36 +38,17 @@ public class SessionManager {
         reaper.scheduleAtFixedRate(this::reapTimedOutSessions, 10, 10, TimeUnit.SECONDS);
     }
 
-    /**
-     * Result of a session creation attempt.
-     */
-    public static class CreateResult {
-        public final Session session;
-        public final String rejectReason;
-
-        private CreateResult(Session session, String rejectReason) {
-            this.session = session;
-            this.rejectReason = rejectReason;
-        }
-
-        public boolean isSuccess() {
-            return session != null;
-        }
-
-        static CreateResult success(Session session) {
-            return new CreateResult(session, null);
-        }
-
-        static CreateResult rejected(String reason) {
-            return new CreateResult(null, reason);
-        }
+    public void addUdpSendChannel(DatagramChannel channel) {
+        udpSendChannels.add(channel);
     }
 
-    /**
-     * Attempt to create a session for a new connection.
-     * Returns a result containing the session on success, or a reject reason on
-     * failure.
-     */
+    private DatagramChannel channelFor(Session session) {
+        int count = udpSendChannels.size();
+        if (count == 0) return null;
+        if (count == 1) return udpSendChannels.get(0);
+        return udpSendChannels.get((session.getSessionId().hashCode() & 0x7FFFFFFF) % count);
+    }
+
     public CreateResult createSession(Channel channel) {
         if (sessionsByChannel.size() >= ServerConfig.GLOBAL_CONNECTION_CEILING) {
             return CreateResult.rejected("Server is full");
@@ -159,9 +113,6 @@ public class SessionManager {
         sessionsByChannel.put(channel, session);
     }
 
-    /**
-     * Update the hash→session index when a session's identity hash changes.
-     */
     public void updateHashIndex(Session session, String oldHash, String newHash) {
         if (oldHash != null) {
             sessionsByHash.remove(oldHash, session);
@@ -178,7 +129,6 @@ public class SessionManager {
             return;
         }
 
-        // Remove old mapping if address changed
         InetSocketAddress oldAddr = session.getUdpAddress();
         if (oldAddr != null) {
             sessionsByUdpAddress.remove(oldAddr);
@@ -192,10 +142,6 @@ public class SessionManager {
 
     }
 
-    /**
-     * Atomically check if a hash can be claimed by the given session.
-     * Returns true if the hash is unclaimed or already owned by this session.
-     */
     public boolean claimHash(Session session, String hash) {
         Session existing = sessionsByHash.putIfAbsent(hash, session);
         return existing == null || existing == session;
@@ -213,49 +159,55 @@ public class SessionManager {
         return sessionsBySessionId.get(sessionId);
     }
 
-
     public void forwardAudio(Session sender, int sequenceNumber, byte[] opusPayload) {
         String senderHash = sender.getIdentityHash();
         if (senderHash == null) {
             return;
         }
 
-        byte[] senderHashBytes = senderHash.getBytes(StandardCharsets.UTF_8);
-        byte[] header = buildAudioHeader(senderHashBytes, sequenceNumber);
-        if (udpSendSocket == null) {
+        if (udpSendChannels.isEmpty()) {
             return;
         }
 
-        NioDatagramChannel datagramChannel = udpSendSocket;
+        byte[] senderHashBytes = senderHash.getBytes(StandardCharsets.UTF_8);
+        byte[] header = buildAudioHeader(senderHashBytes, sequenceNumber);
 
-        if (loopbackEnabled) {
-            sendAudioToReceiver(datagramChannel, sender, header, sequenceNumber, opusPayload);
-        }
+        Set<DatagramChannel> usedChannels = new HashSet<>();
 
-        for (String candidateHash : sender.getNearbyHashes()) {
-            Session receiver = sessionsByHash.get(candidateHash);
-            if (receiver == null || receiver == sender) {
-                continue;
+        if (loopback) {
+            DatagramChannel ch = channelFor(sender);
+            if (ch != null) {
+                sendAudioToReceiver(ch, sender, header, sequenceNumber, opusPayload);
+                usedChannels.add(ch);
             }
+        } else {
+            for (String candidateHash : sender.getNearbyHashes()) {
+                Session receiver = sessionsByHash.get(candidateHash);
+                if (receiver == null || receiver == sender) {
+                    continue;
+                }
 
-            if (!receiver.isHandshakeComplete()) {
-                continue;
-            }
+                if (!receiver.isHandshakeComplete()) {
+                    continue;
+                }
 
-            if (receiver.getNearbyHashes().contains(senderHash)) {
-                if (receiver.canReceiveFrom(senderHash) && sender.canReceiveFrom(candidateHash)) {
-                    sendAudioToReceiver(datagramChannel, receiver, header, sequenceNumber, opusPayload);
+                if (receiver.getNearbyHashes().contains(senderHash)) {
+                    if (receiver.canReceiveFrom(senderHash) && sender.canReceiveFrom(candidateHash)) {
+                        DatagramChannel ch = channelFor(receiver);
+                        if (ch != null) {
+                            sendAudioToReceiver(ch, receiver, header, sequenceNumber, opusPayload);
+                            usedChannels.add(ch);
+                        }
+                    }
                 }
             }
         }
-        datagramChannel.flush();
 
+        for (DatagramChannel ch : usedChannels) {
+            ch.flush();
+        }
     }
 
-    /**
-     * Build the fixed portion of the outbound audio packet header.
-     * Reused for every receiver of the same sender's frame.
-     */
     private byte[] buildAudioHeader(byte[] senderHashBytes, int sequenceNumber) {
         int len = 1 + 2 + senderHashBytes.length + 4;
         byte[] header = new byte[len];
@@ -272,15 +224,7 @@ public class SessionManager {
         return header;
     }
 
-    private static final ThreadLocal<byte[]> PACKET_BUF =
-            ThreadLocal.withInitial(() -> new byte[4096]);
-
-    /**
-     * Encrypt and send an audio frame directly via DatagramSocket.
-     * Called from worker threads — each thread uses its own socket,
-     * so no serialization bottleneck.
-     */
-    private void sendAudioToReceiver(NioDatagramChannel ds, Session receiver, byte[] header,
+    private void sendAudioToReceiver(DatagramChannel ds, Session receiver, byte[] header,
                                      int sequenceNumber, byte[] opusPayload) {
         InetSocketAddress udpAddr = receiver.getUdpAddress();
         if (udpAddr == null) {
@@ -294,13 +238,15 @@ public class SessionManager {
             return;
         }
 
-        byte[] packet = new byte[header.length + encrypted.length];
-        System.arraycopy(header, 0, packet, 0, header.length);
-        System.arraycopy(encrypted, 0, packet, header.length, encrypted.length);
+        int totalLen = header.length + encrypted.length;
+        ByteBuf buf = ds.alloc().directBuffer(totalLen);
+        buf.writeBytes(header);
+        buf.writeBytes(encrypted);
 
         try {
-            ds.write(new DatagramPacket(Unpooled.wrappedBuffer(packet), udpAddr));
+            ds.write(new DatagramPacket(buf, udpAddr));
         } catch (Exception e) {
+            buf.release();
             log.debug("UDP send failed for session {}: {}", receiver.getSessionId(), e.getMessage());
         }
     }
@@ -326,6 +272,10 @@ public class SessionManager {
 
     public void shutdown() {
         reaper.shutdownNow();
+        for (DatagramChannel ch : udpSendChannels) {
+            ch.close();
+        }
+        udpSendChannels.clear();
         for (Channel channel : sessionsByChannel.keySet()) {
             channel.close();
         }
@@ -349,10 +299,31 @@ public class SessionManager {
         }
     }
 
-
-
-        private String getIp(Channel channel) {
+    private String getIp(Channel channel) {
         InetSocketAddress addr = (InetSocketAddress) channel.remoteAddress();
         return addr.getAddress().getHostAddress();
+    }
+
+    // Session creation result
+    public static class CreateResult {
+        public final Session session;
+        public final String rejectReason;
+
+        private CreateResult(Session session, String rejectReason) {
+            this.session = session;
+            this.rejectReason = rejectReason;
+        }
+
+        static CreateResult success(Session session) {
+            return new CreateResult(session, null);
+        }
+
+        static CreateResult rejected(String reason) {
+            return new CreateResult(null, reason);
+        }
+
+        public boolean isSuccess() {
+            return session != null;
+        }
     }
 }
