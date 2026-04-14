@@ -30,6 +30,7 @@ public class Session {
 
     private volatile boolean helloReceived = false;
     private volatile boolean handshakeComplete = false;
+
     private volatile InetSocketAddress udpAddress;
     private final SecretKeySpec udpKeySpec;
     public Session(String sessionId, Channel channel) {
@@ -47,22 +48,22 @@ public class Session {
     // Recode this
 
     public boolean canReceiveFrom(String senderHash) {
-        long now = System.currentTimeMillis();
-
-        if (activeSpeakers.get(senderHash) != null) {
-            activeSpeakers.put(senderHash, now);
-            return true;
-        }
-
-        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
-            activeSpeakers.entrySet().removeIf(e -> now - e.getValue() >= ServerConfig.FORWARD_CLIENT_TIMEOUT_MS);
-        }
-
-        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
-            return false;
-        }
-
-        activeSpeakers.put(senderHash, now);
+//        long now = System.currentTimeMillis();
+//
+//        if (activeSpeakers.get(senderHash) != null) {
+//            activeSpeakers.put(senderHash, now);
+//            return true;
+//        }
+//
+//        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
+//            activeSpeakers.entrySet().removeIf(e -> now - e.getValue() >= ServerConfig.FORWARD_CLIENT_TIMEOUT_MS);
+//        }
+//
+//        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
+//            return false;
+//        }
+//
+//        activeSpeakers.put(senderHash, now);
         return true;
     }
 

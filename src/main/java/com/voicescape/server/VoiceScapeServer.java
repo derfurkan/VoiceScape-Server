@@ -6,17 +6,18 @@ import com.voicescape.server.protocol.MessageHandler;
 import com.voicescape.server.protocol.UdpAudioHandler;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.epoll.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-
-import java.util.Scanner;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,13 +47,16 @@ public class VoiceScapeServer
         sessionManager.setLoopbackEnabled(loopback);
         keyManager.setOnRotation(() -> sessionManager.broadcastKeyRotation(keyManager.getCurrentKey()));
         keyManager.startRotationSchedule();
+        boolean isEpollAvailable = Epoll.isAvailable();
+        bossGroup = isEpollAvailable ? new EpollEventLoopGroup(1) : new NioEventLoopGroup(1);
+        workerGroup = isEpollAvailable ? new EpollEventLoopGroup(Runtime.getRuntime().availableProcessors())
+                : new NioEventLoopGroup(Runtime.getRuntime().availableProcessors());
 
-        bossGroup = new NioEventLoopGroup(1);
-        workerGroup = new NioEventLoopGroup();
+
 
         ServerBootstrap bootstrap = new ServerBootstrap();
         bootstrap.group(bossGroup, workerGroup)
-            .channel(NioServerSocketChannel.class)
+            .channel(isEpollAvailable ? EpollServerSocketChannel.class :NioServerSocketChannel.class)
             .option(ChannelOption.SO_BACKLOG, 100)
             .childOption(ChannelOption.SO_KEEPALIVE, true)
             .childOption(ChannelOption.TCP_NODELAY, true)
@@ -71,9 +75,12 @@ public class VoiceScapeServer
 
         Bootstrap udpBootstrap = new Bootstrap();
         udpBootstrap.group(workerGroup)
-            .channel(NioDatagramChannel.class)
+            .channel(isEpollAvailable ? EpollDatagramChannel.class : NioDatagramChannel.class)
             .option(ChannelOption.SO_BROADCAST, false)
             .option(ChannelOption.SO_RCVBUF, 2000 * 1024)
+            .option(ChannelOption.SO_SNDBUF,2000 * 1024)
+            .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
+            .option(EpollChannelOption.SO_REUSEPORT, true)
             .handler(new ChannelInitializer<DatagramChannel>()
             {
                 @Override
@@ -85,9 +92,11 @@ public class VoiceScapeServer
         sessionManager.setUdpSendSocket((NioDatagramChannel) udpBootstrap.bind(port).sync().channel());
 
         log.info("VoiceScape server started on port {}", port);
+        log.info("  Netty Epoll available: {} ({})", isEpollAvailable, isEpollAvailable ? "" : Epoll.unavailabilityCause().getCause().getMessage());
         log.info("  Max connections: {}", ServerConfig.GLOBAL_CONNECTION_CEILING);
         log.info("  Max per IP: {}", ServerConfig.MAX_CONNECTIONS_PER_IP);
         log.info("  Protocol version: {}", ServerConfig.PROTOCOL_VERSION);
+
 
         if (loopback)
         {

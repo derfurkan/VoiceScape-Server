@@ -227,11 +227,9 @@ public class SessionManager {
         }
 
         NioDatagramChannel datagramChannel = udpSendSocket;
-        int writeCount = 0;
 
         if (loopbackEnabled) {
             sendAudioToReceiver(datagramChannel, sender, header, sequenceNumber, opusPayload);
-            writeCount++;
         }
 
         for (String candidateHash : sender.getNearbyHashes()) {
@@ -247,13 +245,11 @@ public class SessionManager {
             if (receiver.getNearbyHashes().contains(senderHash)) {
                 if (receiver.canReceiveFrom(senderHash) && sender.canReceiveFrom(candidateHash)) {
                     sendAudioToReceiver(datagramChannel, receiver, header, sequenceNumber, opusPayload);
-                    writeCount++;
                 }
             }
         }
-        if (writeCount > 0) {
-            datagramChannel.flush();
-        }
+        datagramChannel.flush();
+
     }
 
     /**
@@ -276,6 +272,9 @@ public class SessionManager {
         return header;
     }
 
+    private static final ThreadLocal<byte[]> PACKET_BUF =
+            ThreadLocal.withInitial(() -> new byte[4096]);
+
     /**
      * Encrypt and send an audio frame directly via DatagramSocket.
      * Called from worker threads — each thread uses its own socket,
@@ -295,9 +294,12 @@ public class SessionManager {
             return;
         }
 
-        ByteBuf buf = Unpooled.wrappedBuffer(header, encrypted);
+        byte[] packet = new byte[header.length + encrypted.length];
+        System.arraycopy(header, 0, packet, 0, header.length);
+        System.arraycopy(encrypted, 0, packet, header.length, encrypted.length);
+
         try {
-            ds.write(new DatagramPacket(buf, udpAddr));
+            ds.write(new DatagramPacket(Unpooled.wrappedBuffer(packet), udpAddr));
         } catch (Exception e) {
             log.debug("UDP send failed for session {}: {}", receiver.getSessionId(), e.getMessage());
         }
