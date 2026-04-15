@@ -6,9 +6,7 @@ The Server Software for the OSRS RuneLite VoiceScape proximity chat plugin
 
 For optimal performance this server should be run on a Linux-based operating system.
 
-Linux allows the use of Netty's `Epoll` transport and the `SO_REUSEPORT` socket option. This configuration enables the
-server to bind multiple UDP sockets to the same port.
-
+Linux allows the use of Netty's `Epoll` transport and the `SO_REUSEPORT` socket option. This configuration enables the server to bind multiple UDP sockets to the same port.
 ## Building and Running
 
 ### Prerequisites
@@ -37,7 +35,6 @@ java -jar -Dport=5555 \
      -Dprotocol_version=1 \
      build/libs/server.jar --loopback  
 ```
-
 (loopback forwards audio back to sender for testing)
 
 ## Configuration
