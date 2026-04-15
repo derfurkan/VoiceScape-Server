@@ -9,8 +9,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -94,6 +96,11 @@ public class SessionManager {
                 sessionsByUdpAddress.remove(udpAddr);
             }
 
+            // Clean up mutual neighbor references in other sessions
+            for (Session mutual : session.getMutualNearbySessions()) {
+                mutual.getMutualNearbySessions().remove(session);
+            }
+
             String ip = getIp(channel);
             connectionsPerIp.compute(ip, (k, count) -> {
                 if (count == null) return null;
@@ -164,8 +171,8 @@ public class SessionManager {
     }
 
     public void forwardAudio(Session sender, int sequenceNumber, byte[] opusPayload) {
-        String senderHash = sender.getIdentityHash();
-        if (senderHash == null) {
+        byte[] senderHashBytes = sender.getIdentityHashBytes();
+        if (senderHashBytes == null) {
             return;
         }
 
@@ -173,74 +180,61 @@ public class SessionManager {
             return;
         }
 
-        byte[] senderHashBytes = senderHash.getBytes(StandardCharsets.UTF_8);
-        byte[] header = buildAudioHeader(senderHashBytes, sequenceNumber);
-
-        Set<DatagramChannel> usedChannels = new HashSet<>();
-
         if (loopback) {
             DatagramChannel ch = channelFor(sender);
             if (ch != null) {
-                sendAudioToReceiver(ch, sender, header, sequenceNumber, opusPayload);
-                usedChannels.add(ch);
+                sendAudioToReceiver(ch, sender, senderHashBytes, sequenceNumber, opusPayload);
+                ch.flush();
             }
+            return;
         }
 
-            for (String candidateHash : sender.getMutualNearby()) {
-                Session receiver = sessionsByHash.get(candidateHash);
-                //   if (receiver.canReceiveFrom(senderHash) && sender.canReceiveFrom(candidateHash)) {
-                DatagramChannel ch = channelFor(receiver);
-                if (ch != null) {
-                    // Add batch writing
-                    sendAudioToReceiver(ch, receiver, header, sequenceNumber, opusPayload);
-                    usedChannels.add(ch);
-                }
-                //   }
-            }
+        for (Session receiver : sender.getMutualNearbySessions()) {
+            // Re-verify handshake because sessions might have disconnected but not yet reaped
+            if (!receiver.isHandshakeComplete()) continue;
 
-        for (DatagramChannel ch : usedChannels) {
+            DatagramChannel ch = channelFor(receiver);
+            if (ch != null) {
+                sendAudioToReceiver(ch, receiver, senderHashBytes, sequenceNumber, opusPayload);
+            }
+        }
+    }
+
+    public void flushAllChannels() {
+        for (DatagramChannel ch : udpSendChannels) {
             ch.flush();
         }
     }
 
-
-
-    private byte[] buildAudioHeader(byte[] senderHashBytes, int sequenceNumber) {
-        int len = 1 + 2 + senderHashBytes.length + 4;
-        byte[] header = new byte[len];
-        int pos = 0;
-        header[pos++] = PacketTypes.SERVER_AUDIO_FRAME;
-        header[pos++] = (byte) (senderHashBytes.length >> 8);
-        header[pos++] = (byte) senderHashBytes.length;
-        System.arraycopy(senderHashBytes, 0, header, pos, senderHashBytes.length);
-        pos += senderHashBytes.length;
-        header[pos++] = (byte) (sequenceNumber >> 24);
-        header[pos++] = (byte) (sequenceNumber >> 16);
-        header[pos++] = (byte) (sequenceNumber >> 8);
-        header[pos] = (byte) sequenceNumber;
-        return header;
-    }
-
-    private void sendAudioToReceiver(DatagramChannel ds, Session receiver, byte[] header,
+    private void sendAudioToReceiver(DatagramChannel ds, Session receiver, byte[] senderHashBytes,
                                      int sequenceNumber, byte[] opusPayload) {
         InetSocketAddress udpAddr = receiver.getUdpAddress();
         if (udpAddr == null) {
             return;
         }
 
-        byte[] encrypted;
+        // Calculate total length: type(1) + hashLen(2) + hash + seq(4) + payload
+        int totalLen = 1 + 2 + senderHashBytes.length + 4 + opusPayload.length;
+        ByteBuf buf = ds.alloc().directBuffer(totalLen);
+
+        buf.writeByte(PacketTypes.SERVER_AUDIO_FRAME);
+        buf.writeShort(senderHashBytes.length);
+        buf.writeBytes(senderHashBytes);
+        buf.writeInt(sequenceNumber);
+
+        // Encrypt directly into the direct ByteBuf
+        java.nio.ByteBuffer outNio = buf.nioBuffer(buf.writerIndex(), opusPayload.length);
+        java.nio.ByteBuffer inNio = java.nio.ByteBuffer.wrap(opusPayload);
         try {
-            encrypted = UdpCrypto.encrypt(receiver.getUdpKeySpec(), sequenceNumber, opusPayload);
+            UdpCrypto.processInPlace(receiver.getUdpKeySpec(), sequenceNumber, inNio, outNio, javax.crypto.Cipher.ENCRYPT_MODE);
+            buf.writerIndex(buf.writerIndex() + opusPayload.length);
         } catch (Exception e) {
+            buf.release();
             return;
         }
 
-        int totalLen = header.length + encrypted.length;
-        ByteBuf buf = ds.alloc().directBuffer(totalLen);
-        buf.writeBytes(header);
-        buf.writeBytes(encrypted);
-
         try {
+            // Use write (queues for batching)
             ds.write(new DatagramPacket(buf, udpAddr));
         } catch (Exception e) {
             buf.release();

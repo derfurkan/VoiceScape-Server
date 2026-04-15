@@ -19,6 +19,7 @@ public final class UdpCrypto {
     private UdpCrypto() {
     }
 
+    // Keep to use later
     public static byte[] encrypt(SecretKeySpec keySpec, int sequenceNumber, byte[] data) {
         return process(keySpec, sequenceNumber, data, Cipher.ENCRYPT_MODE);
     }
@@ -39,6 +40,22 @@ public final class UdpCrypto {
             Cipher cipher = CIPHER.get();
             cipher.init(mode, keySpec, new IvParameterSpec(iv));
             return cipher.doFinal(data);
+        } catch (Exception e) {
+            throw new RuntimeException("UDP crypto failed", e);
+        }
+    }
+
+    public static void processInPlace(SecretKeySpec keySpec, int sequenceNumber, java.nio.ByteBuffer in, java.nio.ByteBuffer out, int mode) {
+        try {
+            byte[] iv = IV_BUF.get();
+            iv[0] = (byte) (sequenceNumber >> 24);
+            iv[1] = (byte) (sequenceNumber >> 16);
+            iv[2] = (byte) (sequenceNumber >> 8);
+            iv[3] = (byte) sequenceNumber;
+
+            Cipher cipher = CIPHER.get();
+            cipher.init(mode, keySpec, new IvParameterSpec(iv));
+            cipher.doFinal(in, out);
         } catch (Exception e) {
             throw new RuntimeException("UDP crypto failed", e);
         }

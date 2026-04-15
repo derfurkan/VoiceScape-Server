@@ -7,7 +7,6 @@ import java.net.InetSocketAddress;
 import java.security.SecureRandom;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class Session {
@@ -17,15 +16,15 @@ public class Session {
     private final AtomicLong audioPacketCount = new AtomicLong(0);
     private final AtomicLong hashUpdateCount = new AtomicLong(0);
     private final AtomicLong bytesThisSecond = new AtomicLong(0);
-    private final ConcurrentHashMap<String, Long> activeSpeakers = new ConcurrentHashMap<>();
     private final SecretKeySpec udpKeySpec;
+    private final Set<Session> mutualNearbySessions = ConcurrentHashMap.newKeySet();
     private volatile Channel channel;
     private volatile String identityHash;
+    private volatile byte[] identityHashBytes;
     private volatile Set<String> nearbyHashes = ConcurrentHashMap.newKeySet();
     private volatile boolean helloReceived = false;
     private volatile boolean handshakeComplete = false;
     private volatile InetSocketAddress udpAddress;
-    private final Set<String> mutualNearby = ConcurrentHashMap.newKeySet();
 
     public Session(String sessionId, Channel channel) {
         this.sessionId = sessionId;
@@ -40,28 +39,8 @@ public class Session {
         return udpKeySpec;
     }
 
-    public Set<String> getMutualNearby() {
-        return mutualNearby;
-    }
-
-    public boolean canReceiveFrom(String senderHash) {
-        long now = System.currentTimeMillis();
-
-        if (activeSpeakers.get(senderHash) != null) {
-            activeSpeakers.put(senderHash, now);
-            return true;
-        }
-
-        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
-            activeSpeakers.entrySet().removeIf(e -> now - e.getValue() >= ServerConfig.FORWARD_CLIENT_TIMEOUT_MS);
-        }
-
-        if (activeSpeakers.size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
-            return false;
-        }
-
-        activeSpeakers.put(senderHash, now);
-        return true;
+    public Set<Session> getMutualNearbySessions() {
+        return mutualNearbySessions;
     }
 
     public String getSessionId() {
@@ -78,6 +57,11 @@ public class Session {
 
     public void setIdentityHash(String identityHash) {
         this.identityHash = identityHash;
+        this.identityHashBytes = identityHash.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    public byte[] getIdentityHashBytes() {
+        return identityHashBytes;
     }
 
     public Set<String> getNearbyHashes() {

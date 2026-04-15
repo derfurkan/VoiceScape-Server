@@ -7,7 +7,10 @@ import com.voicescape.server.protocol.UdpAudioHandler;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.PooledByteBufAllocator;
-import io.netty.channel.*;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.epoll.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.DatagramChannel;
@@ -16,9 +19,6 @@ import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class VoiceScapeServer {
     private static final Logger log = LoggerFactory.getLogger(VoiceScapeServer.class);
@@ -31,7 +31,6 @@ public class VoiceScapeServer {
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private EventLoopGroup udpGroup;
-    private ExecutorService audioWorkers;
 
     public VoiceScapeServer(int port, boolean loopback) {
         this.port = port;
@@ -81,8 +80,7 @@ public class VoiceScapeServer {
         bootstrap.group(bossGroup, workerGroup)
                 .channel(isEpollAvailable ? EpollServerSocketChannel.class : NioServerSocketChannel.class)
                 .option(ChannelOption.SO_BACKLOG, 100)
-                .option(ChannelOption.SO_RCVBUF,  2 * 1024 * 1024)
-                .option(ChannelOption.SO_SNDBUF,  2 * 1024 * 1024)
+                .option(ChannelOption.SO_RCVBUF, 2 * 1024 * 1024)
                 .childOption(ChannelOption.SO_KEEPALIVE, true)
                 .childOption(ChannelOption.TCP_NODELAY, true)
                 .childHandler(new ChannelInitializer<SocketChannel>() {
@@ -102,22 +100,13 @@ public class VoiceScapeServer {
 
         int udpChannelCount = isEpollAvailable ? Runtime.getRuntime().availableProcessors() * 2 : 1;
 
-        audioWorkers = Executors.newFixedThreadPool(
-                Runtime.getRuntime().availableProcessors() * 2, r ->
-                {
-                    Thread t = new Thread(r, "VoiceScape-AudioWorker");
-                    t.setDaemon(true);
-                    return t;
-                }
-        );
-
         for (int i = 0; i < udpChannelCount; i++) {
             Bootstrap udpBootstrap = new Bootstrap();
             udpBootstrap.group(udpGroup)
                     .channel(isEpollAvailable ? EpollDatagramChannel.class : NioDatagramChannel.class)
                     .option(ChannelOption.SO_BROADCAST, false)
-                    .option(ChannelOption.SO_RCVBUF,  2 * 1024 * 1024)
-                    .option(ChannelOption.SO_SNDBUF,  2 * 1024 * 1024)
+                    .option(ChannelOption.SO_RCVBUF, 2 * 1024 * 1024)
+                    .option(ChannelOption.SO_SNDBUF, 2 * 1024 * 1024)
                     .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
             if (isEpollAvailable) {
                 udpBootstrap.option(EpollChannelOption.SO_REUSEPORT, true);
@@ -126,7 +115,7 @@ public class VoiceScapeServer {
             udpBootstrap.handler(new ChannelInitializer<DatagramChannel>() {
                 @Override
                 protected void initChannel(DatagramChannel ch) {
-                    ch.pipeline().addLast("handler", new UdpAudioHandler(sessionManager, audioWorkers));
+                    ch.pipeline().addLast("handler", new UdpAudioHandler(sessionManager));
                 }
             });
 
@@ -153,7 +142,6 @@ public class VoiceScapeServer {
         log.info("Shutting down VoiceScape server");
         keyManager.shutdown();
         sessionManager.shutdown();
-        if (audioWorkers != null) audioWorkers.shutdownNow();
         if (udpGroup != null) udpGroup.shutdownGracefully();
         if (workerGroup != null) workerGroup.shutdownGracefully();
         if (bossGroup != null) bossGroup.shutdownGracefully();

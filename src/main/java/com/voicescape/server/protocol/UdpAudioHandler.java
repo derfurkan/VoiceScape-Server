@@ -13,27 +13,14 @@ import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ExecutorService;
 
 public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket> {
     private static final Logger log = LoggerFactory.getLogger(UdpAudioHandler.class);
 
     private final SessionManager sessionManager;
-    private final ExecutorService audioWorkers;
-    private final boolean ownsExecutor;
 
-    public UdpAudioHandler(SessionManager sessionManager, ExecutorService sharedAudioWorkers) {
+    public UdpAudioHandler(SessionManager sessionManager) {
         this.sessionManager = sessionManager;
-        this.audioWorkers = sharedAudioWorkers;
-        this.ownsExecutor = false;
-    }
-
-    @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        if (ownsExecutor) {
-            audioWorkers.shutdown();
-        }
-        super.channelInactive(ctx);
     }
 
     @Override
@@ -64,13 +51,19 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
                 byte[] encrypted = new byte[payloadLen];
                 buf.readBytes(encrypted);
 
-                audioWorkers.execute(() -> processAudioFrame(sender, sequenceNumber, encrypted));
+                // Process directly on EventLoop thread to avoid context switching
+                processAudioFrame(sender, sequenceNumber, encrypted);
                 break;
 
             default:
                 log.debug("Unknown UDP packet type 0x{} from {}", Integer.toHexString(type & 0xFF), sender);
                 break;
         }
+    }
+
+    @Override
+    public void channelReadComplete(ChannelHandlerContext ctx) {
+        sessionManager.flushAllChannels();
     }
 
     private void handleUdpRegister(InetSocketAddress sender, ByteBuf buf) {
