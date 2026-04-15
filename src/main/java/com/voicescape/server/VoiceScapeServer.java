@@ -7,10 +7,7 @@ import com.voicescape.server.protocol.UdpAudioHandler;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.PooledByteBufAllocator;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
 import io.netty.channel.epoll.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.DatagramChannel;
@@ -29,7 +26,7 @@ public class VoiceScapeServer {
     private final int port;
     private final boolean loopback;
     private final SessionManager sessionManager;
-    private final DailyKeyManager keyManager;
+    private final KeyManager keyManager;
 
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
@@ -40,7 +37,7 @@ public class VoiceScapeServer {
         this.port = port;
         this.loopback = loopback;
         this.sessionManager = new SessionManager(loopback);
-        this.keyManager = new DailyKeyManager();
+        this.keyManager = new KeyManager();
     }
 
     public static void main(String[] args) {
@@ -104,7 +101,7 @@ public class VoiceScapeServer {
         int udpChannelCount = isEpollAvailable ? Runtime.getRuntime().availableProcessors() * 2 : 1;
 
         audioWorkers = Executors.newFixedThreadPool(
-                Math.max(8, Runtime.getRuntime().availableProcessors()), r ->
+                Runtime.getRuntime().availableProcessors() * 2, r ->
                 {
                     Thread t = new Thread(r, "VoiceScape-AudioWorker");
                     t.setDaemon(true);
@@ -117,10 +114,9 @@ public class VoiceScapeServer {
             udpBootstrap.group(udpGroup)
                     .channel(isEpollAvailable ? EpollDatagramChannel.class : NioDatagramChannel.class)
                     .option(ChannelOption.SO_BROADCAST, false)
-                    .option(ChannelOption.SO_RCVBUF, 2000 * 1024)
-                    .option(ChannelOption.SO_SNDBUF, 2000 * 1024)
+                    .option(ChannelOption.SO_RCVBUF, 512 * 1024)
+                    .option(ChannelOption.SO_SNDBUF, 512 * 1024)
                     .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
-
             if (isEpollAvailable) {
                 udpBootstrap.option(EpollChannelOption.SO_REUSEPORT, true);
             }

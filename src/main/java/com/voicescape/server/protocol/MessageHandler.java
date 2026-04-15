@@ -1,6 +1,6 @@
 package com.voicescape.server.protocol;
 
-import com.voicescape.server.DailyKeyManager;
+import com.voicescape.server.KeyManager;
 import com.voicescape.server.ServerConfig;
 import com.voicescape.server.Session;
 import com.voicescape.server.SessionManager;
@@ -18,9 +18,9 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
     private static final Logger log = LoggerFactory.getLogger(MessageHandler.class);
 
     private final SessionManager sessionManager;
-    private final DailyKeyManager keyManager;
+    private final KeyManager keyManager;
 
-    public MessageHandler(SessionManager sessionManager, DailyKeyManager keyManager) {
+    public MessageHandler(SessionManager sessionManager, KeyManager keyManager) {
         this.sessionManager = sessionManager;
         this.keyManager = keyManager;
     }
