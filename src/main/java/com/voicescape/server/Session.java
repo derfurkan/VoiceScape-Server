@@ -7,6 +7,7 @@ import java.net.InetSocketAddress;
 import java.security.SecureRandom;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class Session {
@@ -24,6 +25,7 @@ public class Session {
     private volatile boolean helloReceived = false;
     private volatile boolean handshakeComplete = false;
     private volatile InetSocketAddress udpAddress;
+    private final Set<String> mutualNearby = ConcurrentHashMap.newKeySet();
 
     public Session(String sessionId, Channel channel) {
         this.sessionId = sessionId;
@@ -33,11 +35,15 @@ public class Session {
         this.udpKeySpec = new SecretKeySpec(udpKey, 0, 16, "AES");
     }
 
+
     public SecretKeySpec getUdpKeySpec() {
         return udpKeySpec;
     }
 
-    // Recode this
+    public Set<String> getMutualNearby() {
+        return mutualNearby;
+    }
+
     public boolean canReceiveFrom(String senderHash) {
         long now = System.currentTimeMillis();
 
@@ -80,14 +86,7 @@ public class Session {
 
     public void updateNearbyHashes(Set<String> hashes) {
         Set<String> replacement = ConcurrentHashMap.newKeySet();
-        int count = 0;
-        for (String hash : hashes) {
-            if (count >= ServerConfig.MAX_NEARBY_HASHES) {
-                break;
-            }
-            replacement.add(hash);
-            count++;
-        }
+        hashes.stream().limit(ServerConfig.MAX_NEARBY_HASHES).forEach(replacement::add);
         nearbyHashes = replacement;
         lastUpdateTime.set(System.currentTimeMillis());
     }

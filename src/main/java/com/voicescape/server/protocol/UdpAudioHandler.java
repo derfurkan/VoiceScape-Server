@@ -41,7 +41,7 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         ByteBuf buf = packet.content();
         InetSocketAddress sender = packet.sender();
 
-        if (buf.readableBytes() < 1) {
+        if (buf.readableBytes() < 2) {
             return;
         }
 
@@ -91,7 +91,6 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
             log.debug("Rejected UDP Register (Session not found)");
             return;
         }
-        log.debug("Received UDP Register for Session " + sessionId + " " + sender.getPort());
         sessionManager.registerUdpAddress(sessionId, sender);
     }
 

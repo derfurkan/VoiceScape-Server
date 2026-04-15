@@ -255,5 +255,15 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
         }
 
         session.updateNearbyHashes(hashes);
+        session.getMutualNearby().clear();
+        for (String candidateHash : session.getNearbyHashes()) {
+            if(session.getMutualNearby().size() >= ServerConfig.MAX_FORWARD_CLIENTS) {
+                break;
+            }
+            Session other = sessionManager.getSessionByHash(candidateHash);
+            if (other != null && other != session && other.isHandshakeComplete() && other.getNearbyHashes().contains(session.getIdentityHash())) {
+                session.getMutualNearby().add(candidateHash);
+            }
+        }
     }
 }

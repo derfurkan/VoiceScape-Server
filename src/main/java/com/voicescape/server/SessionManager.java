@@ -147,6 +147,10 @@ public class SessionManager {
         return existing == null || existing == session;
     }
 
+    public Session getSessionByHash(String hash) {
+        return sessionsByHash.get(hash);
+    }
+
     public Session getSessionByUdpAddress(InetSocketAddress address) {
         return sessionsByUdpAddress.get(address);
     }
@@ -180,33 +184,26 @@ public class SessionManager {
                 sendAudioToReceiver(ch, sender, header, sequenceNumber, opusPayload);
                 usedChannels.add(ch);
             }
-        } else {
-            for (String candidateHash : sender.getNearbyHashes()) {
-                Session receiver = sessionsByHash.get(candidateHash);
-                if (receiver == null || receiver == sender) {
-                    continue;
-                }
-
-                if (!receiver.isHandshakeComplete()) {
-                    continue;
-                }
-
-                if (receiver.getNearbyHashes().contains(senderHash)) {
-                    if (receiver.canReceiveFrom(senderHash) && sender.canReceiveFrom(candidateHash)) {
-                        DatagramChannel ch = channelFor(receiver);
-                        if (ch != null) {
-                            sendAudioToReceiver(ch, receiver, header, sequenceNumber, opusPayload);
-                            usedChannels.add(ch);
-                        }
-                    }
-                }
-            }
         }
+
+            for (String candidateHash : sender.getMutualNearby()) {
+                Session receiver = sessionsByHash.get(candidateHash);
+                //   if (receiver.canReceiveFrom(senderHash) && sender.canReceiveFrom(candidateHash)) {
+                DatagramChannel ch = channelFor(receiver);
+                if (ch != null) {
+                    // Add batch writing
+                    sendAudioToReceiver(ch, receiver, header, sequenceNumber, opusPayload);
+                    usedChannels.add(ch);
+                }
+                //   }
+            }
 
         for (DatagramChannel ch : usedChannels) {
             ch.flush();
         }
     }
+
+
 
     private byte[] buildAudioHeader(byte[] senderHashBytes, int sequenceNumber) {
         int len = 1 + 2 + senderHashBytes.length + 4;

@@ -81,6 +81,8 @@ public class VoiceScapeServer {
         bootstrap.group(bossGroup, workerGroup)
                 .channel(isEpollAvailable ? EpollServerSocketChannel.class : NioServerSocketChannel.class)
                 .option(ChannelOption.SO_BACKLOG, 100)
+                .option(ChannelOption.SO_RCVBUF,  2 * 1024 * 1024)
+                .option(ChannelOption.SO_SNDBUF,  2 * 1024 * 1024)
                 .childOption(ChannelOption.SO_KEEPALIVE, true)
                 .childOption(ChannelOption.TCP_NODELAY, true)
                 .childHandler(new ChannelInitializer<SocketChannel>() {
@@ -114,8 +116,8 @@ public class VoiceScapeServer {
             udpBootstrap.group(udpGroup)
                     .channel(isEpollAvailable ? EpollDatagramChannel.class : NioDatagramChannel.class)
                     .option(ChannelOption.SO_BROADCAST, false)
-                    .option(ChannelOption.SO_RCVBUF, 512 * 1024)
-                    .option(ChannelOption.SO_SNDBUF, 512 * 1024)
+                    .option(ChannelOption.SO_RCVBUF,  2 * 1024 * 1024)
+                    .option(ChannelOption.SO_SNDBUF,  2 * 1024 * 1024)
                     .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
             if (isEpollAvailable) {
                 udpBootstrap.option(EpollChannelOption.SO_REUSEPORT, true);
