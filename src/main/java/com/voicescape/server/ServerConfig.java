@@ -8,9 +8,9 @@ public final class ServerConfig {
     public static final int GLOBAL_CONNECTION_CEILING = getProperty("max_connections");
     public static final int MAX_AUDIO_PACKETS_PER_SEC = 70;
     public static final int MAX_HASH_UPDATES_PER_SEC = 5;
-    public static final int MAX_BANDWIDTH_BPS = 64000;
+    public static final int MAX_BANDWIDTH_BPS = 1500000;
     public static final int MAX_FORWARD_CLIENTS = 10;
-    public static final int MAX_AUDIO_PAYLOAD_BYTES = 200;
+    public static final int MAX_AUDIO_PAYLOAD_BYTES = 1400;
     public static final int MAX_NEARBY_HASHES = 50;
     public static final int MAX_HASH_LENGTH = 256;
     public static final int MAX_SID_LENGTH = 16;

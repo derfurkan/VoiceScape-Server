@@ -94,15 +94,15 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
             return;
         }
 
-        byte[] opusPayload;
+        byte[] audioPayload;
         try {
-            opusPayload = UdpCrypto.decrypt(session.getUdpKeySpec(), sequenceNumber, encrypted);
+            audioPayload = UdpCrypto.decrypt(session.getUdpKeySpec(), sequenceNumber, encrypted);
         } catch (Exception e) {
             log.debug("UDP decrypt failed for session {}", session.getSessionId());
             return;
         }
 
-        sessionManager.forwardAudio(session, sequenceNumber, opusPayload);
+        sessionManager.forwardAudio(session, sequenceNumber, audioPayload);
     }
 
     @Override

@@ -170,7 +170,7 @@ public class SessionManager {
         return sessionsBySessionId.get(sessionId);
     }
 
-    public void forwardAudio(Session sender, int sequenceNumber, byte[] opusPayload) {
+    public void forwardAudio(Session sender, int sequenceNumber, byte[] audioPayload) {
         byte[] senderHashBytes = sender.getIdentityHashBytes();
         if (senderHashBytes == null) {
             return;
@@ -182,8 +182,8 @@ public class SessionManager {
 
         if (loopback) {
             DatagramChannel ch = channelFor(sender);
-            if (ch != null) {
-                sendAudioToReceiver(ch, sender, senderHashBytes, sequenceNumber, opusPayload);
+            if (ch != null && ch.isWritable()) {
+                sendAudioToReceiver(ch, sender, senderHashBytes, sequenceNumber, audioPayload);
                 ch.flush();
             }
             return;
@@ -195,7 +195,7 @@ public class SessionManager {
 
             DatagramChannel ch = channelFor(receiver);
             if (ch != null) {
-                sendAudioToReceiver(ch, receiver, senderHashBytes, sequenceNumber, opusPayload);
+                sendAudioToReceiver(ch, receiver, senderHashBytes, sequenceNumber, audioPayload);
             }
         }
     }
@@ -207,14 +207,14 @@ public class SessionManager {
     }
 
     private void sendAudioToReceiver(DatagramChannel ds, Session receiver, byte[] senderHashBytes,
-                                     int sequenceNumber, byte[] opusPayload) {
+                                     int sequenceNumber, byte[] audioPayload) {
         InetSocketAddress udpAddr = receiver.getUdpAddress();
         if (udpAddr == null) {
             return;
         }
 
         // Calculate total length: type(1) + hashLen(2) + hash + seq(4) + payload
-        int totalLen = 1 + 2 + senderHashBytes.length + 4 + opusPayload.length;
+        int totalLen = 1 + 2 + senderHashBytes.length + 4 + audioPayload.length;
         ByteBuf buf = ds.alloc().directBuffer(totalLen);
 
         buf.writeByte(PacketTypes.SERVER_AUDIO_FRAME);
@@ -223,11 +223,11 @@ public class SessionManager {
         buf.writeInt(sequenceNumber);
 
         // Encrypt directly into the direct ByteBuf
-        java.nio.ByteBuffer outNio = buf.nioBuffer(buf.writerIndex(), opusPayload.length);
-        java.nio.ByteBuffer inNio = java.nio.ByteBuffer.wrap(opusPayload);
+        java.nio.ByteBuffer outNio = buf.nioBuffer(buf.writerIndex(), audioPayload.length);
+        java.nio.ByteBuffer inNio = java.nio.ByteBuffer.wrap(audioPayload);
         try {
             UdpCrypto.processInPlace(receiver.getUdpKeySpec(), sequenceNumber, inNio, outNio, javax.crypto.Cipher.ENCRYPT_MODE);
-            buf.writerIndex(buf.writerIndex() + opusPayload.length);
+            buf.writerIndex(buf.writerIndex() + audioPayload.length);
         } catch (Exception e) {
             buf.release();
             return;

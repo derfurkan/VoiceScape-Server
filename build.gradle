@@ -1,8 +1,7 @@
 plugins {
     id 'java'
     id 'application'
-    id 'org.springframework.boot' version '3.4.0'
-    id 'io.spring.dependency-management' version '1.1.6'
+    id 'com.gradleup.shadow' version '9.3.0'
 }
 
 repositories {
@@ -18,7 +17,6 @@ java {
 }
 
 dependencies {
-
     implementation 'io.netty:netty-all:4.2.12.Final'
     implementation 'org.slf4j:slf4j-api:2.0.12'
     implementation 'ch.qos.logback:logback-classic:1.5.3'
@@ -28,16 +26,8 @@ application {
     mainClass = 'com.voicescape.server.VoiceScapeServer'
 }
 
-springBoot {
-    mainClass = 'com.voicescape.server.VoiceScapeServer'
-}
-
-tasks.named('jar') {
-    enabled = false
-}
-
-bootJar {
-    archiveFileName = 'server.jar'
+shadowJar {
+    archiveFileName = 'voicescape-server.jar'
 }
 
 tasks.withType(JavaCompile).configureEach {
