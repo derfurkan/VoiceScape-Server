@@ -47,7 +47,7 @@ public class SessionManager {
     private DatagramChannel channelFor(Session session) {
         int count = udpSendChannels.size();
         if (count == 0) return null;
-        if (count == 1) return udpSendChannels.get(0);
+        if (count == 1) return udpSendChannels.getFirst();
         return udpSendChannels.get((session.getSessionId().hashCode() & 0x7FFFFFFF) % count);
     }
 
@@ -288,6 +288,15 @@ public class SessionManager {
             removeSession(ch);
             ch.close();
         }
+    }
+
+
+    public Map<String, Session> getSessionsBySessionId() {
+        return sessionsBySessionId;
+    }
+
+    public List<DatagramChannel> getUdpSendChannels() {
+        return udpSendChannels;
     }
 
     private String getIp(Channel channel) {

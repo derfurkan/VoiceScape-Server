@@ -23,7 +23,11 @@ public final class ServerConfig {
     }
 
     static int getProperty(String key) {
-        return Integer.parseInt(System.getProperty(key));
+        try {
+            return Integer.parseInt(System.getProperty(key));
+        } catch (NumberFormatException e) {
+            throw new NumberFormatException("Invalid property: " + key);
+        }
     }
 
 }

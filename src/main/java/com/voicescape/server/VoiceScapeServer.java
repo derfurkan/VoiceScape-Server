@@ -7,18 +7,17 @@ import com.voicescape.server.protocol.UdpAudioHandler;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.PooledByteBufAllocator;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
 import io.netty.channel.epoll.*;
-import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Scanner;
 
 public class VoiceScapeServer {
     private static final Logger log = LoggerFactory.getLogger(VoiceScapeServer.class);
@@ -58,7 +57,6 @@ public class VoiceScapeServer {
 
         VoiceScapeServer server = new VoiceScapeServer(port, loopback);
         Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown, "VoiceScape-Shutdown"));
-
         try {
             server.start();
         } catch (Exception e) {
@@ -71,10 +69,8 @@ public class VoiceScapeServer {
         keyManager.setOnRotation(() -> sessionManager.broadcastKeyRotation(keyManager.getCurrentKey()));
         keyManager.startRotationSchedule();
         boolean isEpollAvailable = Epoll.isAvailable();
-        bossGroup = isEpollAvailable ? new EpollEventLoopGroup(1) : new NioEventLoopGroup(1);
-        workerGroup = isEpollAvailable ? new EpollEventLoopGroup(Runtime.getRuntime().availableProcessors())
-                : new NioEventLoopGroup(Runtime.getRuntime().availableProcessors());
-
+        bossGroup = new MultiThreadIoEventLoopGroup(1,isEpollAvailable ? EpollIoHandler.newFactory() : NioIoHandler.newFactory());
+        workerGroup = new MultiThreadIoEventLoopGroup(Runtime.getRuntime().availableProcessors(), isEpollAvailable ? EpollIoHandler.newFactory() : NioIoHandler.newFactory());
 
         ServerBootstrap bootstrap = new ServerBootstrap();
         bootstrap.group(bossGroup, workerGroup)
@@ -94,9 +90,8 @@ public class VoiceScapeServer {
 
         ChannelFuture future = bootstrap.bind(port).sync();
 
-        udpGroup = isEpollAvailable
-                ? new EpollEventLoopGroup(Runtime.getRuntime().availableProcessors())
-                : new NioEventLoopGroup(Runtime.getRuntime().availableProcessors());
+        udpGroup = new MultiThreadIoEventLoopGroup(Runtime.getRuntime().availableProcessors(),
+                isEpollAvailable ? EpollIoHandler.newFactory() : NioIoHandler.newFactory());
 
         int udpChannelCount = isEpollAvailable ? Runtime.getRuntime().availableProcessors() * 2 : 1;
 
@@ -134,8 +129,20 @@ public class VoiceScapeServer {
         if (loopback) {
             log.warn("  Loopback: ENABLED - audio only echoed back to senders (testing only!)");
         }
-
-        future.channel().closeFuture().sync();
+        Scanner scanner = new Scanner(System.in);
+        while (!future.channel().closeFuture().isDone()) {
+            try {
+                switch (scanner.nextLine().toLowerCase().trim()) {
+                    case "info" -> {
+                        log.info("  Sessions connected: {}",sessionManager.getSessionsBySessionId().size());
+                        log.info("  UDP channels: {}", sessionManager.getUdpSendChannels().size());
+                    }
+                    case "shutdown" -> System.exit(0);
+                }
+            } catch (Exception e) {
+                break;
+            }
+        }
     }
 
     public void shutdown() {
