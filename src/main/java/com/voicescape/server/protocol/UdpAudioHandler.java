@@ -12,10 +12,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket> {
     private static final Logger log = LoggerFactory.getLogger(UdpAudioHandler.class);
+
+    private static final ThreadLocal<ByteBuffer> PLAINTEXT_SCRATCH =
+            ThreadLocal.withInitial(() -> ByteBuffer.allocateDirect(ServerConfig.MAX_AUDIO_PAYLOAD_BYTES));
 
     private final SessionManager sessionManager;
 
@@ -48,11 +52,8 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
                 if (payloadLen <= 0 || payloadLen > ServerConfig.MAX_AUDIO_PAYLOAD_BYTES) {
                     return;
                 }
-                byte[] encrypted = new byte[payloadLen];
-                buf.readBytes(encrypted);
 
-                // Process directly on EventLoop thread to avoid context switching
-                processAudioFrame(sender, sequenceNumber, encrypted);
+                processAudioFrame(sender, sequenceNumber, buf, payloadLen);
                 break;
 
             default:
@@ -87,22 +88,27 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         sessionManager.registerUdpAddress(sessionId, sender);
     }
 
-    private void processAudioFrame(InetSocketAddress sender, int sequenceNumber, byte[] encrypted) {
+    private void processAudioFrame(InetSocketAddress sender, int sequenceNumber, ByteBuf buf, int payloadLen) {
         Session session = sessionManager.getSessionByUdpAddress(sender);
         if (session == null || !session.isHandshakeComplete() || !session.checkAudioRate()
-                || !session.checkBandwidth(encrypted.length)) {
+                || !session.checkBandwidth(payloadLen)) {
             return;
         }
 
-        byte[] audioPayload;
+        ByteBuffer encryptedNio = buf.nioBuffer(buf.readerIndex(), payloadLen);
+        ByteBuffer plaintext = PLAINTEXT_SCRATCH.get();
+        plaintext.clear();
+
         try {
-            audioPayload = UdpCrypto.decrypt(session.getUdpKeySpec(), sequenceNumber, encrypted);
+            UdpCrypto.processInPlace(session.getUdpKeySpec(), sequenceNumber, encryptedNio, plaintext,
+                    javax.crypto.Cipher.DECRYPT_MODE);
         } catch (Exception e) {
             log.debug("UDP decrypt failed for session {}", session.getSessionId());
             return;
         }
 
-        sessionManager.forwardAudio(session, sequenceNumber, audioPayload);
+        plaintext.flip();
+        sessionManager.forwardAudio(session, sequenceNumber, plaintext);
     }
 
     @Override

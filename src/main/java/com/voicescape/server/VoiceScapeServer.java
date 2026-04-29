@@ -26,6 +26,7 @@ public class VoiceScapeServer {
     private final boolean loopback;
     private final SessionManager sessionManager;
     private final KeyManager keyManager;
+    private final PacedSender pacedSender;
 
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
@@ -34,7 +35,8 @@ public class VoiceScapeServer {
     public VoiceScapeServer(int port, boolean loopback) {
         this.port = port;
         this.loopback = loopback;
-        this.sessionManager = new SessionManager(loopback);
+        this.pacedSender = new PacedSender();
+        this.sessionManager = new SessionManager(loopback, pacedSender);
         this.keyManager = new KeyManager();
     }
 
@@ -68,6 +70,7 @@ public class VoiceScapeServer {
     public void start() throws Exception {
         keyManager.setOnRotation(() -> sessionManager.broadcastKeyRotation(keyManager.getCurrentKey()));
         keyManager.startRotationSchedule();
+        pacedSender.start();
         boolean isEpollAvailable = Epoll.isAvailable();
         bossGroup = new MultiThreadIoEventLoopGroup(1,isEpollAvailable ? EpollIoHandler.newFactory() : NioIoHandler.newFactory());
         workerGroup = new MultiThreadIoEventLoopGroup(Runtime.getRuntime().availableProcessors(), isEpollAvailable ? EpollIoHandler.newFactory() : NioIoHandler.newFactory());
@@ -100,8 +103,9 @@ public class VoiceScapeServer {
             udpBootstrap.group(udpGroup)
                     .channel(isEpollAvailable ? EpollDatagramChannel.class : NioDatagramChannel.class)
                     .option(ChannelOption.SO_BROADCAST, false)
-                    .option(ChannelOption.SO_RCVBUF, 2 * 1024 * 1024)
-                    .option(ChannelOption.SO_SNDBUF, 2 * 1024 * 1024)
+                    .option(ChannelOption.SO_RCVBUF, 4 * 1024 * 1024)
+                    .option(ChannelOption.SO_SNDBUF, 4 * 1024 * 1024)
+                    .option(ChannelOption.IP_TOS, 0xb8)
                     .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
             if (isEpollAvailable) {
                 udpBootstrap.option(EpollChannelOption.SO_REUSEPORT, true);
@@ -148,6 +152,7 @@ public class VoiceScapeServer {
     public void shutdown() {
         log.info("Shutting down VoiceScape server");
         keyManager.shutdown();
+        pacedSender.shutdown();
         sessionManager.shutdown();
         if (udpGroup != null) udpGroup.shutdownGracefully();
         if (workerGroup != null) workerGroup.shutdownGracefully();

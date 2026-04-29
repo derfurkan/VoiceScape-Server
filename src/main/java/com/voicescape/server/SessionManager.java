@@ -4,11 +4,11 @@ import com.voicescape.server.protocol.PacketTypes;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.socket.DatagramChannel;
-import io.netty.channel.socket.DatagramPacket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -26,11 +26,13 @@ public class SessionManager {
     private final Map<String, AtomicInteger> connectionsPerIp = new ConcurrentHashMap<>();
     private final ScheduledExecutorService reaper;
     private final boolean loopback;
+    private final PacedSender pacedSender;
 
     private final List<DatagramChannel> udpSendChannels = new CopyOnWriteArrayList<>();
 
-    public SessionManager(boolean loopback) {
+    public SessionManager(boolean loopback, PacedSender pacedSender) {
         this.loopback = loopback;
+        this.pacedSender = pacedSender;
         reaper = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "VoiceScape-SessionReaper");
             thread.setDaemon(true);
@@ -85,6 +87,7 @@ public class SessionManager {
         Session session = sessionsByChannel.remove(channel);
         if (session != null) {
             sessionsBySessionId.remove(session.getSessionId());
+            pacedSender.removeFlow(session.getSessionId());
 
             String hash = session.getIdentityHash();
             if (hash != null) {
@@ -170,7 +173,7 @@ public class SessionManager {
         return sessionsBySessionId.get(sessionId);
     }
 
-    public void forwardAudio(Session sender, int sequenceNumber, byte[] audioPayload) {
+    public void forwardAudio(Session sender, int sequenceNumber, ByteBuffer plaintext) {
         byte[] senderHashBytes = sender.getIdentityHashBytes();
         if (senderHashBytes == null) {
             return;
@@ -183,8 +186,7 @@ public class SessionManager {
         if (loopback) {
             DatagramChannel ch = channelFor(sender);
             if (ch != null && ch.isWritable()) {
-                sendAudioToReceiver(ch, sender, senderHashBytes, sequenceNumber, audioPayload);
-                ch.flush();
+                sendAudioToReceiver(ch, sender, senderHashBytes, sequenceNumber, plaintext);
             }
             return;
         }
@@ -195,7 +197,7 @@ public class SessionManager {
 
             DatagramChannel ch = channelFor(receiver);
             if (ch != null) {
-                sendAudioToReceiver(ch, receiver, senderHashBytes, sequenceNumber, audioPayload);
+                sendAudioToReceiver(ch, receiver, senderHashBytes, sequenceNumber, plaintext);
             }
         }
     }
@@ -207,14 +209,16 @@ public class SessionManager {
     }
 
     private void sendAudioToReceiver(DatagramChannel ds, Session receiver, byte[] senderHashBytes,
-                                     int sequenceNumber, byte[] audioPayload) {
+                                     int sequenceNumber, ByteBuffer plaintext) {
         InetSocketAddress udpAddr = receiver.getUdpAddress();
         if (udpAddr == null) {
             return;
         }
 
+        int payloadLen = plaintext.limit();
+
         // Calculate total length: type(1) + hashLen(2) + hash + seq(4) + payload
-        int totalLen = 1 + 2 + senderHashBytes.length + 4 + audioPayload.length;
+        int totalLen = 1 + 2 + senderHashBytes.length + 4 + payloadLen;
         ByteBuf buf = ds.alloc().directBuffer(totalLen);
 
         buf.writeByte(PacketTypes.SERVER_AUDIO_FRAME);
@@ -222,24 +226,18 @@ public class SessionManager {
         buf.writeBytes(senderHashBytes);
         buf.writeInt(sequenceNumber);
 
-        // Encrypt directly into the direct ByteBuf
-        java.nio.ByteBuffer outNio = buf.nioBuffer(buf.writerIndex(), audioPayload.length);
-        java.nio.ByteBuffer inNio = java.nio.ByteBuffer.wrap(audioPayload);
+        // Encrypt directly into the direct ByteBuf, reading from the shared plaintext scratch
+        ByteBuffer outNio = buf.nioBuffer(buf.writerIndex(), payloadLen);
+        plaintext.position(0);
         try {
-            UdpCrypto.processInPlace(receiver.getUdpKeySpec(), sequenceNumber, inNio, outNio, javax.crypto.Cipher.ENCRYPT_MODE);
-            buf.writerIndex(buf.writerIndex() + audioPayload.length);
+            UdpCrypto.processInPlace(receiver.getUdpKeySpec(), sequenceNumber, plaintext, outNio, javax.crypto.Cipher.ENCRYPT_MODE);
+            buf.writerIndex(buf.writerIndex() + payloadLen);
         } catch (Exception e) {
             buf.release();
             return;
         }
 
-        try {
-            // Use write (queues for batching)
-            ds.write(new DatagramPacket(buf, udpAddr));
-        } catch (Exception e) {
-            buf.release();
-            log.debug("UDP send failed for session {}: {}", receiver.getSessionId(), e.getMessage());
-        }
+        pacedSender.enqueue(receiver.getSessionId(), ds, buf, udpAddr);
     }
 
     public void broadcastKeyRotation(byte[] newKey) {
