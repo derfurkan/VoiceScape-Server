@@ -59,7 +59,7 @@ public class PacedSender {
                     packet.release();
                     return;
                 }
-                advanceNextSend(state, now);
+                state.advanceNextSend(now);
             } else {
                 if (state.queue.size() >= MAX_QUEUE_PER_FLOW) {
                     PendingPacket droppedPacket = state.queue.poll();
@@ -92,7 +92,7 @@ public class PacedSender {
                         } catch (Exception e) {
                             pendingPacket.release();
                         }
-                        advanceNextSend(state, now);
+                        state.advanceNextSend(now);
                     }
                 }
             }
@@ -109,20 +109,11 @@ public class PacedSender {
         }
     }
 
-    private static void advanceNextSend(FlowState state, long now) {
-        if (state.nextSendNanos == 0) {
-            state.nextSendNanos = now + FRAME_INTERVAL_NANOS;
-        } else {
-            state.nextSendNanos += FRAME_INTERVAL_NANOS;
-            if (now - state.nextSendNanos > CATCHUP_RESET_NANOS) {
-                state.nextSendNanos = now + FRAME_INTERVAL_NANOS;
-            }
-        }
-    }
+
 
     private static class FlowState {
-        final Queue<PendingPacket> queue = new ArrayDeque<>();
-        long nextSendNanos = 0;
+        private final Queue<PendingPacket> queue = new ArrayDeque<>();
+        private long nextSendNanos = 0;
 
         void drain() {
             synchronized (this) {
@@ -133,6 +124,18 @@ public class PacedSender {
                 }
             }
         }
+
+        private void advanceNextSend(long now) {
+            if (nextSendNanos == 0) {
+                nextSendNanos = now + FRAME_INTERVAL_NANOS;
+            } else {
+                nextSendNanos += FRAME_INTERVAL_NANOS;
+                if (now - nextSendNanos > CATCHUP_RESET_NANOS) {
+                    nextSendNanos = now + FRAME_INTERVAL_NANOS;
+                }
+            }
+        }
+
     }
 
     private record PendingPacket(DatagramChannel channel, ByteBuf buf, InetSocketAddress dest) {

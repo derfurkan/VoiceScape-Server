@@ -106,10 +106,8 @@ public class VoiceScapeServer {
                     .option(ChannelOption.SO_RCVBUF, 4 * 1024 * 1024)
                     .option(ChannelOption.SO_SNDBUF, 4 * 1024 * 1024)
                     .option(ChannelOption.IP_TOS, 0xb8)
-                    .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
-            if (isEpollAvailable) {
-                udpBootstrap.option(EpollChannelOption.SO_REUSEPORT, true);
-            }
+                    .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
+                    .option(EpollChannelOption.SO_REUSEPORT, isEpollAvailable);
 
             udpBootstrap.handler(new ChannelInitializer<DatagramChannel>() {
                 @Override
@@ -128,11 +126,10 @@ public class VoiceScapeServer {
         log.info("  Max connections: {}", ServerConfig.GLOBAL_CONNECTION_CEILING);
         log.info("  Max per IP: {}", ServerConfig.MAX_CONNECTIONS_PER_IP);
         log.info("  Protocol version: {}", ServerConfig.PROTOCOL_VERSION);
-
-
         if (loopback) {
             log.warn("  Loopback: ENABLED - audio only echoed back to senders (testing only!)");
         }
+
         Scanner scanner = new Scanner(System.in);
         while (!future.channel().closeFuture().isDone()) {
             try {

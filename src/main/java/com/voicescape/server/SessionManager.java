@@ -33,6 +33,7 @@ public class SessionManager {
     public SessionManager(boolean loopback, PacedSender pacedSender) {
         this.loopback = loopback;
         this.pacedSender = pacedSender;
+
         reaper = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "VoiceScape-SessionReaper");
             thread.setDaemon(true);
@@ -46,7 +47,7 @@ public class SessionManager {
         udpSendChannels.add(channel);
     }
 
-    private DatagramChannel channelFor(Session session) {
+    private DatagramChannel channelForUdp(Session session) {
         int count = udpSendChannels.size();
         if (count == 0) return null;
         if (count == 1) return udpSendChannels.getFirst();
@@ -123,6 +124,7 @@ public class SessionManager {
         sessionsByChannel.put(channel, session);
     }
 
+    // TODO: Remove oldHash arg because we actually dont need it.
     public void updateHashIndex(Session session, String oldHash, String newHash) {
         if (oldHash != null) {
             sessionsByHash.remove(oldHash, session);
@@ -175,17 +177,13 @@ public class SessionManager {
 
     public void forwardAudio(Session sender, int sequenceNumber, ByteBuffer plaintext) {
         byte[] senderHashBytes = sender.getIdentityHashBytes();
-        if (senderHashBytes == null) {
-            return;
-        }
-
-        if (udpSendChannels.isEmpty()) {
+        if (senderHashBytes == null || udpSendChannels.isEmpty()) {
             return;
         }
 
         if (loopback) {
-            DatagramChannel ch = channelFor(sender);
-            if (ch != null && ch.isWritable()) {
+            DatagramChannel ch = channelForUdp(sender);
+            if (ch != null) {
                 sendAudioToReceiver(ch, sender, senderHashBytes, sequenceNumber, plaintext);
             }
             return;
@@ -195,7 +193,7 @@ public class SessionManager {
             // Re-verify handshake because sessions might have disconnected but not yet reaped
             if (!receiver.isHandshakeComplete()) continue;
 
-            DatagramChannel ch = channelFor(receiver);
+            DatagramChannel ch = channelForUdp(receiver);
             if (ch != null) {
                 sendAudioToReceiver(ch, receiver, senderHashBytes, sequenceNumber, plaintext);
             }
@@ -208,7 +206,7 @@ public class SessionManager {
         }
     }
 
-    private void sendAudioToReceiver(DatagramChannel ds, Session receiver, byte[] senderHashBytes,
+    private void sendAudioToReceiver(DatagramChannel datagramChannel, Session receiver, byte[] senderHashBytes,
                                      int sequenceNumber, ByteBuffer plaintext) {
         InetSocketAddress udpAddr = receiver.getUdpAddress();
         if (udpAddr == null) {
@@ -219,7 +217,7 @@ public class SessionManager {
 
         // Calculate total length: type(1) + hashLen(2) + hash + seq(4) + payload
         int totalLen = 1 + 2 + senderHashBytes.length + 4 + payloadLen;
-        ByteBuf buf = ds.alloc().directBuffer(totalLen);
+        ByteBuf buf = datagramChannel.alloc().directBuffer(totalLen);
 
         buf.writeByte(PacketTypes.SERVER_AUDIO_FRAME);
         buf.writeShort(senderHashBytes.length);
@@ -237,7 +235,7 @@ public class SessionManager {
             return;
         }
 
-        pacedSender.enqueue(receiver.getSessionId(), ds, buf, udpAddr);
+        pacedSender.enqueue(receiver.getSessionId(), datagramChannel, buf, udpAddr);
     }
 
     public void broadcastKeyRotation(byte[] newKey) {
