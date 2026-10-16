@@ -2,7 +2,8 @@ package com.voicescape.server;
 
 public final class ServerConfig {
     public static final int PORT = getProperty("port");
-    public static final int MAX_FRAME_LENGTH = 4096;
+    public static final int MAX_TCP_PAYLOAD_LENGTH = 4094;
+    public static final int MAX_FRAME_LENGTH = Short.BYTES + MAX_TCP_PAYLOAD_LENGTH;
     public static final int HANDSHAKE_TIMEOUT_MS = getProperty("handshake_timeout_ms");
     public static final int MAX_CONNECTIONS_PER_IP = getProperty("max_connections_ip");
     public static final int GLOBAL_CONNECTION_CEILING = getProperty("max_connections");
