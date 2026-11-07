@@ -19,7 +19,7 @@ public final class ServerConfig {
     public static final long MAX_PACER_WAIT_MS = getProperty("max_pacer_wait_ms");
     public static final long SESSION_TIMEOUT_MS = getProperty("session_timeout_ms");
     public static final long KEY_ROTATION_INTERVAL_MS = getProperty("key_rotation_interval_s") * 1000L;
-    public static final int PROTOCOL_VERSION = getProperty("protocol_version");
+    public static final int PROTOCOL_VERSION = 2;
 
 
     private ServerConfig() {
@@ -34,3 +34,4 @@ public final class ServerConfig {
     }
 
 }
+

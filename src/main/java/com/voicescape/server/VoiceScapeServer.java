@@ -68,6 +68,9 @@ public class VoiceScapeServer {
     }
 
     public void start() throws Exception {
+        io.netty.handler.ssl.SslContext tls = io.netty.handler.ssl.SslContextBuilder.forServer(
+            new java.io.File(java.util.Objects.requireNonNull(System.getProperty("tls_cert"), "tls_cert required")),
+            new java.io.File(java.util.Objects.requireNonNull(System.getProperty("tls_key"), "tls_key required"))).build();
         keyManager.setOnRotation(() -> sessionManager.broadcastKeyRotation(keyManager.getCurrentKey()));
         keyManager.startRotationSchedule();
         pacedSender.start();
@@ -85,6 +88,7 @@ public class VoiceScapeServer {
                 .childHandler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
+                        ch.pipeline().addLast("tls", tls.newHandler(ch.alloc()));
                         ch.pipeline().addLast("decoder", new MessageDecoder());
                         ch.pipeline().addLast("encoder", new MessageEncoder());
                         ch.pipeline().addLast("handler", new MessageHandler(sessionManager, keyManager));
@@ -121,7 +125,7 @@ public class VoiceScapeServer {
         }
 
         log.info("VoiceScape server started on port {}", port);
-        log.info("  Netty Epoll available: {} ({})", isEpollAvailable, isEpollAvailable ? "" : Epoll.unavailabilityCause().getCause().getMessage());
+        log.info("  Netty Epoll available: {} ({})", isEpollAvailable, isEpollAvailable ? "" : String.valueOf(Epoll.unavailabilityCause()));
         log.info("  UDP send channels: {}", udpChannelCount);
         log.info("  Max connections: {}", ServerConfig.GLOBAL_CONNECTION_CEILING);
         log.info("  Max per IP: {}", ServerConfig.MAX_CONNECTIONS_PER_IP);
@@ -156,3 +160,4 @@ public class VoiceScapeServer {
         if (bossGroup != null) bossGroup.shutdownGracefully();
     }
 }
+

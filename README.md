@@ -11,7 +11,7 @@ Linux allows the use of Netty's `Epoll` transport and the `SO_REUSEPORT` socket 
 
 ### Prerequisites
 
-- Java 11 or higher
+- Java 21 or higher
 - Gradle
 
 ### Build Commands
@@ -35,8 +35,8 @@ java -jar -Dport=5555 \
      -Dmax_pacer_wait_ms=20 \
      -Dsession_timeout_ms=25000 \
      -Dkey_rotation_interval_s=86400 \
-     -Dprotocol_version=1 \
-     build/libs/server.jar --loopback  
+     -Dprotocol_version=2 \
+     build/libs/voicescape-server.jar --loopback
 ```
 (loopback forwards audio back to sender for testing)
 
@@ -56,3 +56,10 @@ Server is configured via system properties. These can be set via command-line ar
 | `session_timeout_ms`       | Inactivity threshold before a session is removed               |
 | `key_rotation_interval_s`  | Frequency of key rotation in seconds                           |
 | `protocol_version`         | Current protocol version (must match client)                   |
+
+## Protocol v2 migration and security
+
+Deploy the v2 client and server together; v1 is incompatible. TCP requires TLS with a certificate trusted by the client JVM and matching the configured hostname. Start the server with `-Dtls_cert=/path/fullchain.pem -Dtls_key=/path/private-key.pem` before `-jar`. There is no insecure fallback. Session resumption is disabled. Audio uses authenticated AES-GCM with random packet nonces and fixed 24 kHz / 16-bit mono PCM (960 bytes per 20 ms frame).
+
+Player-name hashes are pseudonyms, **not verified account identities**: every connected client receives the daily HMAC key and can claim an unoccupied name. Neither proximity nor ownership of an OSRS account can be securely established from client-supplied hashes. Do not treat this service as a private or authenticated conversation channel. A future account-verification service is needed for that guarantee. The relay can decrypt audio and can identify guessed player names; this is not end-to-end encryption.
+

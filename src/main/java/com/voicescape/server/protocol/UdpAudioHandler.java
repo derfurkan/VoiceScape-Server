@@ -49,7 +49,7 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
                 }
                 int sequenceNumber = buf.readInt();
                 int payloadLen = buf.readableBytes();
-                if (payloadLen <= 0 || payloadLen > ServerConfig.MAX_AUDIO_PAYLOAD_BYTES) {
+                if (payloadLen <= 0 || payloadLen > ServerConfig.MAX_AUDIO_PAYLOAD_BYTES + 28) {
                     return;
                 }
 
@@ -81,10 +81,19 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         buf.readBytes(sessionIdBytes);
         String sessionId = new String(sessionIdBytes, StandardCharsets.UTF_8);
         Session session = sessionManager.getSessionById(sessionId);
-        if ((session != null && !session.isHandshakeComplete())) {
+        if (session == null || !session.isHandshakeComplete()) {
             log.debug("Rejected UDP Register (Session not found)");
             return;
         }
+        byte[] proof = new byte[buf.readableBytes()];
+        buf.readBytes(proof);
+        try {
+            if (!java.security.MessageDigest.isEqual(sessionIdBytes,
+                    UdpCrypto.decrypt(session.getUdpKeySpec().getEncoded(), -1, proof))) return;
+            // Registration cannot move a session to another IP than its TLS connection.
+            if (!sender.getAddress().equals(((InetSocketAddress)session.getChannel().remoteAddress()).getAddress())) return;
+        } catch (RuntimeException e) { return; }
+        if (session.getUdpAddress() != null && !session.getUdpAddress().equals(sender)) return;
         sessionManager.registerUdpAddress(sessionId, sender);
     }
 
@@ -107,6 +116,9 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
             return;
         }
 
+        byte[] nonce = new byte[12];
+        buf.getBytes(buf.readerIndex(), nonce);
+        if (!session.acceptNonce(nonce)) return;
         plaintext.flip();
         sessionManager.forwardAudio(session, sequenceNumber, plaintext);
     }
@@ -116,3 +128,4 @@ public class UdpAudioHandler extends SimpleChannelInboundHandler<DatagramPacket>
         log.debug("UDP handler exception: {}", cause.getMessage());
     }
 }
+

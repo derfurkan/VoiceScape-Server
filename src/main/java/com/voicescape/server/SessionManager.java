@@ -191,7 +191,9 @@ public class SessionManager {
 
         for (Session receiver : sender.getMutualNearbySessions()) {
             // Re-verify handshake because sessions might have disconnected but not yet reaped
-            if (!receiver.isHandshakeComplete()) continue;
+            if (!receiver.isHandshakeComplete() || !receiver.getChannel().isActive()
+                || !receiver.getNearbyHashes().contains(sender.getIdentityHash())
+                || !sender.getNearbyHashes().contains(receiver.getIdentityHash())) continue;
 
             DatagramChannel ch = channelForUdp(receiver);
             if (ch != null) {
@@ -213,7 +215,7 @@ public class SessionManager {
             return;
         }
 
-        int payloadLen = plaintext.limit();
+        int payloadLen = plaintext.limit() + 28;
 
         // Calculate total length: type(1) + hashLen(2) + hash + seq(4) + payload
         int totalLen = 1 + 2 + senderHashBytes.length + 4 + payloadLen;
@@ -228,14 +230,16 @@ public class SessionManager {
         ByteBuffer outNio = buf.nioBuffer(buf.writerIndex(), payloadLen);
         plaintext.position(0);
         try {
-            UdpCrypto.processInPlace(receiver.getUdpKeySpec(), sequenceNumber, plaintext, outNio, javax.crypto.Cipher.ENCRYPT_MODE);
+            byte[] frame = new byte[plaintext.remaining()];
+            plaintext.get(frame);
+            outNio.put(UdpCrypto.encrypt(receiver.getUdpKeySpec().getEncoded(), sequenceNumber, frame, senderHashBytes));
             buf.writerIndex(buf.writerIndex() + payloadLen);
         } catch (Exception e) {
             buf.release();
             return;
         }
 
-        pacedSender.enqueue(receiver.getSessionId(), datagramChannel, buf, udpAddr);
+        pacedSender.enqueue(receiver.getSessionId() + ":" + new String(senderHashBytes, java.nio.charset.StandardCharsets.UTF_8), datagramChannel, buf, udpAddr);
     }
 
     public void broadcastKeyRotation(byte[] newKey) {
@@ -323,3 +327,4 @@ public class SessionManager {
         }
     }
 }
+
