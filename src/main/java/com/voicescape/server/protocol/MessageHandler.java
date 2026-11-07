@@ -46,7 +46,7 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        // Reaper takes care of this
+        sessionManager.removeSession(ctx.channel());
         super.channelInactive(ctx);
     }
 
@@ -132,18 +132,8 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
         String clientSessionId = new String(sessionIdBytes, StandardCharsets.UTF_8);
 
         if (sessionIdLen > 0) {
-            Session existingSession = sessionManager.getSessionById(clientSessionId);
-            if (existingSession != null && existingSession != session) {
-                sessionManager.removeSession(ctx.channel());
-                sessionManager.rebindSession(ctx.channel(), existingSession);
-                session = existingSession;
-                session.setHelloReceived(true);
-                log.debug("Session {} reclaimed on new channel", clientSessionId);
-                sendHelloAck(ctx, session);
-                return;
-            } else if (existingSession == null) {
-                log.debug("Client attempted to reclaim but SessionId {} does not exist.", clientSessionId);
-            }
+            sendErrorAndClose(ctx, "Session resumption is disabled; open a fresh session");
+            return;
         }
 
         session.setHelloReceived(true);
@@ -274,3 +264,4 @@ public class MessageHandler extends SimpleChannelInboundHandler<ByteBuf> {
         session.getMutualNearbySessions().addAll(newMutuals);
     }
 }
+

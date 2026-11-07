@@ -11,6 +11,14 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class Session {
     private final String sessionId;
+    private final java.util.Set<String> receivedNonces = new java.util.LinkedHashSet<>();
+    public synchronized boolean acceptNonce(byte[] nonce) {
+        String id = java.util.Base64.getEncoder().encodeToString(nonce);
+        if (!receivedNonces.add(id)) return false;
+        if (receivedNonces.size() > 4096) receivedNonces.remove(receivedNonces.iterator().next());
+        return true;
+    }
+
     private final AtomicLong lastUpdateTime = new AtomicLong(System.currentTimeMillis());
     private final AtomicLong rateLimitWindowStart = new AtomicLong(System.currentTimeMillis());
     private final AtomicLong audioPacketCount = new AtomicLong(0);
@@ -134,3 +142,4 @@ public class Session {
         }
     }
 }
+

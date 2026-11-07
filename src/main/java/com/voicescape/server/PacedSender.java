@@ -52,6 +52,7 @@ public class PacedSender {
         long now = System.nanoTime();
         FlowState state = flows.computeIfAbsent(receiverSessionId, k -> new FlowState());
         synchronized (state) {
+            state.lastEnqueueNanos = now;
             if (state.queue.isEmpty() && now >= state.nextSendNanos) {
                 try {
                     channel.write(new DatagramPacket(packet, dest));
@@ -72,13 +73,21 @@ public class PacedSender {
     }
 
     public void removeFlow(String receiverSessionId) {
-        FlowState state = flows.remove(receiverSessionId);
-        if (state != null) state.drain();
+        for (String id : flows.keySet()) {
+            if (id.startsWith(receiverSessionId + ":")) {
+                FlowState state = flows.remove(id);
+                if (state != null) state.drain();
+            }
+        }
     }
 
     private void tick() {
         try {
             long now = System.nanoTime();
+            flows.entrySet().removeIf(entry -> {
+                FlowState state = entry.getValue();
+                synchronized(state) { return state.queue.isEmpty() && now - state.lastEnqueueNanos > TimeUnit.SECONDS.toNanos(30); }
+            });
             Set<DatagramChannel> toFlush = null;
             for (FlowState state : flows.values()) {
                 synchronized (state) {
@@ -114,6 +123,7 @@ public class PacedSender {
     private static class FlowState {
         private final Queue<PendingPacket> queue = new ArrayDeque<>();
         private long nextSendNanos = 0;
+        private long lastEnqueueNanos = System.nanoTime();
 
         void drain() {
             synchronized (this) {
@@ -144,3 +154,4 @@ public class PacedSender {
             }
         }
 }
+
